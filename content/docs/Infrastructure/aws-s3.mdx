@@ -1,0 +1,414 @@
+---
+title: AWS S3 Integration
+description: File storage and management using AWS S3
+---
+
+# AWS S3 File Storage
+
+The application uses AWS S3 (Simple Storage Service) for storing video files, exported clips, and other media assets. The implementation provides functions for uploading, downloading, and deleting files with signed URL support for secure access.
+
+## S3 Client Configuration
+
+### Client Initialization
+
+```typescript
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
+  }
+});
+
+const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || 'your-bucket-name';
+```
+
+**How It Works**:
+
+1. **S3Client**: Creates AWS SDK v3 client
+   - `region`: AWS region where S3 bucket is located
+   - `credentials`: IAM user access credentials
+   - Uses environment variables for configuration
+
+2. **Credentials**:
+   - `AWS_ACCESS_KEY_ID`: IAM user access key ID
+   - `AWS_SECRET_ACCESS_KEY`: IAM user secret access key
+   - Should have S3 permissions: `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`
+
+3. **Bucket Name**:
+   - `AWS_S3_BUCKET_NAME`: Target bucket for all operations
+   - Fallback: `'your-bucket-name'` (should be set in production)
+
+## Upload Function
+
+### uploadToS3
+
+```typescript
+export async function uploadToS3(
+  key: string,
+  body: Buffer | Uint8Array | string,
+  contentType?: string
+) {
+  const command = new PutObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    Body: body,
+    ContentType: contentType
+  });
+
+  await s3Client.send(command);
+  return `s3://${BUCKET_NAME}/${key}`;
+}
+```
+
+**Parameters**:
+- `key`: S3 object key (file path in bucket)
+  - Example: `youtube-videos/uuid-123/yt/video.mp4`
+- `body`: File content as Buffer, Uint8Array, or string
+- `contentType`: MIME type (optional)
+  - Example: `'video/mp4'`, `'image/jpeg'`, `'text/plain'`
+
+**Process**:
+1. Creates `PutObjectCommand` with bucket, key, body, and content type
+2. Sends command to S3 using `s3Client.send()`
+3. Returns S3 URI: `s3://bucket-name/path/to/file`
+
+**Usage Examples**:
+
+**Upload Video File**:
+```typescript
+const videoBuffer = await fetch(videoUrl).then(r => r.arrayBuffer());
+const s3Uri = await uploadToS3(
+  'youtube-videos/abc-123/yt/original.mp4',
+  Buffer.from(videoBuffer),
+  'video/mp4'
+);
+// Returns: 's3://my-bucket/youtube-videos/abc-123/yt/original.mp4'
+```
+
+**Upload Text File**:
+```typescript
+const transcript = "Video transcript content...";
+const s3Uri = await uploadToS3(
+  'transcripts/video-123/transcript.txt',
+  transcript,
+  'text/plain'
+);
+```
+
+**Upload JSON Data**:
+```typescript
+const metadata = JSON.stringify({ title: 'Video', duration: 300 });
+const s3Uri = await uploadToS3(
+  'metadata/video-123/meta.json',
+  metadata,
+  'application/json'
+);
+```
+
+## Signed URL Function
+
+### getSignedUrlForObject
+
+```typescript
+export async function getSignedUrlForObject(
+  key: string,
+  expiresIn: number = 3600
+) {
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key
+  });
+
+  return await getSignedUrl(s3Client, command, { expiresIn });
+}
+```
+
+**Parameters**:
+- `key`: S3 object key to access
+- `expiresIn`: URL expiration time in seconds (default: 3600 = 1 hour)
+
+**Process**:
+1. Creates `GetObjectCommand` for the specified key
+2. Generates pre-signed URL using `getSignedUrl`
+3. URL valid for `expiresIn` seconds
+4. Returns HTTPS URL with temporary access credentials
+
+**What Are Signed URLs?**:
+- Temporary URLs granting time-limited access to private S3 objects
+- Include authentication parameters in query string
+- No AWS credentials needed by client
+- Auto-expire after specified time
+- Cannot be used after expiration
+
+**Usage Examples**:
+
+**Get Download Link (1 hour)**:
+```typescript
+const downloadUrl = await getSignedUrlForObject(
+  'youtube-videos/abc-123/yt/original.mp4',
+  3600
+);
+// Returns: 'https://my-bucket.s3.amazonaws.com/youtube-videos/.../original.mp4?X-Amz-...'
+```
+
+**Short-Lived Preview Link (5 minutes)**:
+```typescript
+const previewUrl = await getSignedUrlForObject(
+  'clips/exported/clip-123.mp4',
+  300 // 5 minutes
+);
+```
+
+**Long-Lived Download Link (24 hours)**:
+```typescript
+const longUrl = await getSignedUrlForObject(
+  'exports/final-video.mp4',
+  86400 // 24 hours
+);
+```
+
+**Client Usage**:
+```typescript
+// In API route
+const signedUrl = await getSignedUrlForObject(s3Key, 3600);
+return Response.json({ downloadUrl: signedUrl });
+
+// In client
+const response = await fetch('/api/get-video-url');
+const { downloadUrl } = await response.json();
+window.open(downloadUrl); // Opens/downloads video
+```
+
+## Delete Function
+
+### deleteFromS3
+
+```typescript
+export async function deleteFromS3(key: string) {
+  const command = new DeleteObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key
+  });
+
+  await s3Client.send(command);
+}
+```
+
+**Parameters**:
+- `key`: S3 object key to delete
+
+**Process**:
+1. Creates `DeleteObjectCommand` for the specified key
+2. Sends command to S3
+3. Object deleted permanently (no trash/recovery)
+
+**Usage Examples**:
+
+**Delete Single File**:
+```typescript
+await deleteFromS3('youtube-videos/abc-123/yt/original.mp4');
+```
+
+**Delete After Processing**:
+```typescript
+// After exporting clips, delete original
+await uploadToS3(clipKey, clipData, 'video/mp4');
+await deleteFromS3(originalKey); // Clean up original
+```
+
+**Cascade Delete**:
+```typescript
+// Delete video and all associated files
+const video = await prisma.video.findUnique({
+  where: { id: videoId },
+  include: { clips: true, exportedClips: true }
+});
+
+// Delete original video
+await deleteFromS3(video.s3Key);
+
+// Delete all exported clips
+for (const clip of video.exportedClips) {
+  await deleteFromS3(clip.s3Key);
+}
+
+// Delete from database
+await prisma.video.delete({ where: { id: videoId } });
+```
+
+**Important Notes**:
+- Deletion is permanent (S3 has no recycle bin by default)
+- Returns void (no error if file doesn't exist)
+- Consider versioning for accidental deletion recovery
+- Can delete folders by listing all keys with prefix
+
+## File Storage Patterns
+
+### YouTube Video Storage
+
+```typescript
+// Generate unique key for video
+const videoUuid = uuidv4();
+const s3Key = `youtube-videos/${videoUuid}/yt`;
+
+// Store in database
+await prisma.video.create({
+  data: {
+    userId,
+    youtubeUrl,
+    s3Key,
+    // ...
+  }
+});
+
+// Upload video to S3
+await uploadToS3(s3Key, videoBuffer, 'video/mp4');
+```
+
+**Key Structure**: `youtube-videos/{uuid}/yt`
+- Groups all files for a video under one prefix
+- UUID prevents collisions
+- `yt` suffix indicates original YouTube video
+
+### Exported Clips Storage
+
+```typescript
+// Key format for exported clips
+const clipKey = `youtube-videos/${videoUuid}/clips/${clipIndex}_${aspectRatio}.mp4`;
+
+// Example: youtube-videos/abc-123/clips/0_9-16.mp4
+await uploadToS3(clipKey, clipBuffer, 'video/mp4');
+
+// Store in database
+await prisma.exportedClip.create({
+  data: {
+    videoId,
+    s3Key: clipKey,
+    aspectRatio: '9:16',
+    // ...
+  }
+});
+```
+
+**Key Structure**: `youtube-videos/{uuid}/clips/{index}_{ratio}.mp4`
+- Organized under parent video folder
+- Index distinguishes multiple clips
+- Aspect ratio in filename for clarity
+
+### Transcript Storage
+
+```typescript
+const transcriptKey = `transcripts/${videoId}/transcript.txt`;
+await uploadToS3(transcriptKey, transcriptText, 'text/plain');
+```
+
+**Key Structure**: `transcripts/{videoId}/transcript.txt`
+- Separate folder for text files
+- Video ID for easy lookup
+
+## Security Considerations
+
+### IAM Permissions
+
+Minimum required IAM policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::your-bucket-name/*"
+    }
+  ]
+}
+```
+
+**Permissions**:
+- `s3:PutObject`: Upload files
+- `s3:GetObject`: Read files (for signed URLs)
+- `s3:DeleteObject`: Delete files
+
+**Security**:
+- Limit to specific bucket only (`your-bucket-name/*`)
+- Don't grant `s3:*` (overly permissive)
+- Use separate IAM users for dev/prod
+- Rotate access keys periodically
+
+### Bucket Configuration
+
+**Recommended S3 Bucket Settings**:
+
+1. **Block Public Access**: Enable all blocks
+   - Prevents accidental public exposure
+   - Use signed URLs for controlled access
+
+2. **Versioning**: Enable for important data
+   - Protects against accidental deletion
+   - Can recover previous versions
+
+3. **Lifecycle Rules**: Auto-delete old files
+   - Transition to cheaper storage (Glacier) after 30 days
+   - Delete after 90 days (if temporary)
+   - Reduces storage costs
+
+4. **Encryption**: Enable server-side encryption
+   - AES-256 encryption at rest
+   - No performance impact
+   - Free security enhancement
+
+5. **CORS**: Configure if accessing from browser
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://yourdomain.com"],
+       "AllowedMethods": ["GET", "PUT", "POST"],
+       "AllowedHeaders": ["*"]
+     }
+   ]
+   ```
+
+## Environment Variables
+
+```bash
+# AWS S3 Configuration
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+AWS_S3_BUCKET_NAME=your-bucket-name
+```
+
+## Error Handling
+
+```typescript
+import { S3ServiceException } from '@aws-sdk/client-s3';
+
+try {
+  await uploadToS3(key, data, contentType);
+} catch (error) {
+  if (error instanceof S3ServiceException) {
+    console.error('S3 Error:', error.name, error.message);
+    
+    if (error.name === 'NoSuchBucket') {
+      // Bucket doesn't exist
+    } else if (error.name === 'AccessDenied') {
+      // Permission issue
+    }
+  }
+  throw error;
+}
+```

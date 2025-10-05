@@ -1,0 +1,773 @@
+---
+title: Playlist Analyzer Hooks
+description: Detailed documentation of custom React hooks used in the Playlist Analyzer feature
+---
+
+## Overview
+
+The Playlist Analyzer uses two custom hooks to separate concerns and maintain clean code architecture:
+
+1. **`useFetchPlaylist`** - Handles data fetching and API communication
+2. **`usePlaylistFilters`** - Handles data filtering, sorting, and calculations
+
+Both hooks are located in `/src/features/analyze/hooks/` and work together with the Zustand store.
+
+## Hook Architecture
+
+```
+Component (analyze-view-page.tsx)
+    ↓
+useFetchPlaylist → API Call → Update Store
+    ↓
+usePlaylistFilters → Process Data → Return Filtered Results
+    ↓
+Component Renders → Display Results
+```
+
+---
+
+## useFetchPlaylist
+
+### Purpose
+
+Handles the complete lifecycle of fetching playlist data from the YouTube API, including validation, loading states, error handling, and user notifications.
+
+### Location
+
+```
+/src/features/analyze/hooks/use-fetch-playlist.ts
+```
+
+### Complete Implementation
+
+```typescript
+import { useToast } from '@/hooks/use-toast';
+import { useAnalyzeStore } from '../store/analyze-store';
+
+export const useFetchPlaylist = () => {
+  const { toast } = useToast();
+  const {
+    playlistUrl,
+    setPlaylistData,
+    setRangeEnd,
+    setIsLoading,
+    setIsSuccess,
+    setError
+  } = useAnalyzeStore();
+
+  const fetchPlaylist = async () => {
+    if (!playlistUrl) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a YouTube playlist URL',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/playlist?id=${playlistUrl}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch playlist data');
+      }
+
+      setPlaylistData(data);
+      setRangeEnd(data.totalVideos.toString());
+      setIsSuccess(true);
+
+      toast({
+        title: 'Success',
+        description: 'Playlist analysis completed successfully',
+        variant: 'default'
+      });
+
+      // Reset success state after animation
+      setTimeout(() => {
+        setIsSuccess(false);
+      }, 2000);
+    } catch (error: any) {
+      console.error('Error analyzing playlist:', error);
+      const errorMessage = error.message || 'Failed to analyze playlist';
+      setError(errorMessage);
+
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive'
+      });
+
+      // Reset error state after showing
+      setTimeout(() => {
+        setError(null);
+      }, 2000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return { fetchPlaylist };
+};
+```
+
+### Return Value
+
+```typescript
+{
+  fetchPlaylist: () => Promise<void>
+}
+```
+
+### Hook Flow
+
+```
+1. Check if URL exists
+   ↓
+2. Set loading state (true)
+3. Clear any previous errors
+   ↓
+4. Make API call to /api/playlist
+   ↓
+5. On Success:
+   - Store playlist data
+   - Set range end to total videos
+   - Set success state
+   - Show success toast
+   - Auto-reset success after 2s
+   ↓
+6. On Error:
+   - Set error message
+   - Show error toast
+   - Auto-reset error after 2s
+   ↓
+7. Set loading state (false)
+```
+
+### Usage Example
+
+```typescript
+import { useFetchPlaylist } from '@/features/analyze/hooks';
+
+function AnalyzeButton() {
+  const { fetchPlaylist } = useFetchPlaylist();
+  const { playlistUrl, isLoading } = useAnalyzeStore();
+
+  const handleClick = () => {
+    fetchPlaylist();
+  };
+
+  return (
+    <button onClick={handleClick} disabled={isLoading || !playlistUrl}>
+      {isLoading ? 'Analyzing...' : 'Analyze Playlist'}
+    </button>
+  );
+}
+```
+
+### Features
+
+#### 1. URL Validation
+```typescript
+if (!playlistUrl) {
+  toast({
+    title: 'Error',
+    description: 'Please enter a YouTube playlist URL',
+    variant: 'destructive'
+  });
+  return;
+}
+```
+Validates that a URL is provided before making API call.
+
+#### 2. State Management
+```typescript
+setIsLoading(true);  // Start loading
+setError(null);      // Clear previous errors
+
+// After fetch...
+setIsLoading(false); // Stop loading
+```
+Manages loading and error states throughout the fetch lifecycle.
+
+#### 3. Auto-Reset States
+```typescript
+// Success auto-reset
+setTimeout(() => {
+  setIsSuccess(false);
+}, 2000);
+
+// Error auto-reset
+setTimeout(() => {
+  setError(null);
+}, 2000);
+```
+Automatically resets success/error states after 2 seconds for better UX.
+
+#### 4. Toast Notifications
+```typescript
+// Success toast
+toast({
+  title: 'Success',
+  description: 'Playlist analysis completed successfully',
+  variant: 'default'
+});
+
+// Error toast
+toast({
+  title: 'Error',
+  description: errorMessage,
+  variant: 'destructive'
+});
+```
+Provides visual feedback for all outcomes.
+
+#### 5. Automatic Range Update
+```typescript
+setRangeEnd(data.totalVideos.toString());
+```
+Automatically sets the end range to include all videos in the playlist.
+
+### Error Handling
+
+The hook handles multiple error scenarios:
+
+| Error Type | Handling |
+|------------|----------|
+| Empty URL | Show validation error toast, return early |
+| Network Error | Catch and display error message |
+| API Error | Parse error from response and display |
+| Invalid Playlist | API returns 400, hook displays error |
+| Rate Limiting | API returns 429, hook displays error |
+
+### API Integration
+
+**Endpoint Called:**
+```
+GET /api/playlist?id={playlistUrl}
+```
+
+**Expected Response:**
+```typescript
+{
+  playlistDetails: PlaylistDetails;
+  videos: VideoItem[];
+  totalDuration: number;
+  totalVideos: number;
+}
+```
+
+### Dependencies
+
+- `useToast` - Toast notification system
+- `useAnalyzeStore` - Global state management
+- `/api/playlist` - Playlist API endpoint
+
+---
+
+## usePlaylistFilters
+
+### Purpose
+
+Processes playlist data by applying filters, sorting, search queries, and calculating durations. All operations are memoized for optimal performance.
+
+### Location
+
+```
+/src/features/analyze/hooks/use-playlist-filters.ts
+```
+
+### Complete Implementation
+
+```typescript
+import { useMemo } from 'react';
+import { useAnalyzeStore } from '../store/analyze-store';
+import type { VideoItem } from '@/lib/youtube';
+
+export const usePlaylistFilters = () => {
+  const {
+    playlistData,
+    rangeStart,
+    rangeEnd,
+    sortBy,
+    playbackSpeed,
+    searchQuery
+  } = useAnalyzeStore();
+
+  // Filter videos by range and search query
+  const filteredVideos = useMemo(() => {
+    if (!playlistData) return [];
+
+    const start = Number.parseInt(rangeStart) - 1;
+    const end = Number.parseInt(rangeEnd);
+
+    return playlistData.videos
+      .slice(start, end)
+      .filter((video) =>
+        video.title.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+  }, [playlistData, rangeStart, rangeEnd, searchQuery]);
+
+  // Sort filtered videos
+  const sortedVideos = useMemo(() => {
+    return [...filteredVideos].sort((a, b) => {
+      switch (sortBy) {
+        case 'duration':
+          return b.duration - a.duration;
+        case 'views':
+          return b.viewCount - a.viewCount;
+        case 'likes':
+          return b.likeCount - a.likeCount;
+        case 'publishdate':
+        case 'publish date':
+          return (
+            new Date(b.publishedAt).getTime() -
+            new Date(a.publishedAt).getTime()
+          );
+        default:
+          return 0; // Default to original order (position)
+      }
+    });
+  }, [filteredVideos, sortBy]);
+
+  // Calculate total duration
+  const totalDuration = useMemo(() => {
+    return filteredVideos.reduce((acc, video) => acc + video.duration, 0);
+  }, [filteredVideos]);
+
+  // Calculate adjusted duration based on playback speed
+  const adjustedDuration = useMemo(() => {
+    return Math.round(totalDuration / Number.parseFloat(playbackSpeed));
+  }, [totalDuration, playbackSpeed]);
+
+  // Generate range options for dropdowns
+  const rangeOptions = useMemo(() => {
+    if (!playlistData) return [];
+    return Array.from({ length: playlistData.totalVideos }, (_, i) =>
+      (i + 1).toString()
+    );
+  }, [playlistData]);
+
+  return {
+    filteredVideos,
+    sortedVideos,
+    totalDuration,
+    adjustedDuration,
+    rangeOptions
+  };
+};
+```
+
+### Return Value
+
+```typescript
+{
+  filteredVideos: VideoItem[];      // Videos after range and search filter
+  sortedVideos: VideoItem[];        // Final videos after sorting
+  totalDuration: number;            // Total duration in seconds
+  adjustedDuration: number;         // Duration adjusted for playback speed
+  rangeOptions: string[];           // Array of video indices for dropdowns
+}
+```
+
+### Processing Pipeline
+
+```
+Original Videos (from API)
+    ↓
+Apply Range Filter (slice)
+    ↓
+Apply Search Filter (title contains query)
+    ↓ (filteredVideos)
+Apply Sort
+    ↓ (sortedVideos)
+Calculate Durations
+    ↓
+Return Results
+```
+
+### Hook Operations
+
+#### 1. Range Filtering
+
+```typescript
+const start = Number.parseInt(rangeStart) - 1;  // Convert to 0-based index
+const end = Number.parseInt(rangeEnd);          // Keep as is for slice
+
+return playlistData.videos.slice(start, end);
+```
+
+**Example:**
+- User selects: "10 to 20"
+- Converts to: `slice(9, 20)`
+- Returns: Videos at indices 9-19 (10 videos total)
+
+#### 2. Search Filtering
+
+```typescript
+.filter((video) =>
+  video.title.toLowerCase().includes(searchQuery.toLowerCase())
+)
+```
+
+**Features:**
+- Case-insensitive search
+- Partial match (substring search)
+- Real-time filtering as user types
+
+**Example:**
+```typescript
+searchQuery = "tutorial"
+// Matches: "JavaScript Tutorial", "React tutorial for beginners", etc.
+```
+
+#### 3. Sorting
+
+Supports multiple sort criteria:
+
+```typescript
+switch (sortBy) {
+  case 'duration':
+    return b.duration - a.duration;  // Longest first
+  case 'views':
+    return b.viewCount - a.viewCount;  // Most viewed first
+  case 'likes':
+    return b.likeCount - a.likeCount;  // Most liked first
+  case 'publish date':
+    return new Date(b.publishedAt).getTime() - 
+           new Date(a.publishedAt).getTime();  // Newest first
+  default:
+    return 0;  // Maintain original order
+}
+```
+
+**Sort Options:**
+
+| Sort By | Order | Logic |
+|---------|-------|-------|
+| Position | Original | No sorting (index order) |
+| Duration | Descending | Longest videos first |
+| Views | Descending | Most viewed first |
+| Likes | Descending | Most liked first |
+| Publish Date | Descending | Newest videos first |
+
+#### 4. Duration Calculation
+
+**Total Duration:**
+```typescript
+const totalDuration = filteredVideos.reduce(
+  (acc, video) => acc + video.duration, 
+  0
+);
+```
+Sums all video durations in seconds.
+
+**Adjusted Duration:**
+```typescript
+const adjustedDuration = Math.round(
+  totalDuration / Number.parseFloat(playbackSpeed)
+);
+```
+
+**Examples:**
+- 100 minutes at 1x speed = 100 minutes
+- 100 minutes at 1.5x speed = 67 minutes
+- 100 minutes at 2x speed = 50 minutes
+- 100 minutes at 0.5x speed = 200 minutes
+
+#### 5. Range Options Generation
+
+```typescript
+const rangeOptions = Array.from(
+  { length: playlistData.totalVideos }, 
+  (_, i) => (i + 1).toString()
+);
+```
+
+**Example:**
+- Playlist has 50 videos
+- Returns: `['1', '2', '3', ..., '50']`
+- Used for dropdown options
+
+### Memoization Benefits
+
+All computations use `useMemo` for performance:
+
+```typescript
+// Only recalculates when dependencies change
+const filteredVideos = useMemo(() => {
+  // ... filtering logic
+}, [playlistData, rangeStart, rangeEnd, searchQuery]);
+```
+
+**Benefits:**
+- Prevents unnecessary recalculations
+- Improves performance with large playlists
+- Reduces re-renders of child components
+
+**Dependency Chain:**
+```
+playlistData changes
+    ↓
+filteredVideos recalculates
+    ↓
+sortedVideos recalculates
+    ↓
+totalDuration recalculates
+    ↓
+adjustedDuration recalculates
+```
+
+### Usage Example
+
+```typescript
+import { usePlaylistFilters } from '@/features/analyze/hooks';
+import { formatDuration } from '@/lib/ythelper';
+
+function PlaylistResults() {
+  const {
+    sortedVideos,
+    adjustedDuration,
+    rangeOptions
+  } = usePlaylistFilters();
+
+  return (
+    <div>
+      <p>Total Watch Time: {formatDuration(adjustedDuration)}</p>
+      <p>Videos Shown: {sortedVideos.length}</p>
+      
+      <div className="video-grid">
+        {sortedVideos.map((video) => (
+          <VideoCard key={video.id} video={video} />
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### Performance Characteristics
+
+| Operation | Complexity | Notes |
+|-----------|-----------|-------|
+| Range Filter | O(n) | `slice()` operation |
+| Search Filter | O(n) | String comparison per video |
+| Sorting | O(n log n) | JavaScript native sort |
+| Duration Calc | O(n) | Single pass with reduce |
+| Range Options | O(n) | Array generation |
+
+**Optimization:**
+- All operations memoized
+- Only recalculate when dependencies change
+- Minimal impact on render performance
+
+### Edge Cases Handled
+
+#### Empty Playlist
+```typescript
+if (!playlistData) return [];
+```
+Returns empty array if no data loaded.
+
+#### Invalid Range
+```typescript
+const start = Number.parseInt(rangeStart) - 1;
+const end = Number.parseInt(rangeEnd);
+```
+Handles string-to-number conversion safely.
+
+#### Empty Search
+```typescript
+searchQuery.toLowerCase().includes('')  // Always true
+```
+Empty search shows all videos (no filtering).
+
+#### No Matches
+```typescript
+sortedVideos.length === 0
+// UI shows "No videos found" message
+```
+
+### Dependencies
+
+- `useAnalyzeStore` - Global state access
+- `VideoItem` type - TypeScript type safety
+- `React.useMemo` - Performance optimization
+
+---
+
+## Hooks Integration Example
+
+Complete example showing both hooks working together:
+
+```typescript
+'use client';
+
+import { useAnalyzeStore } from '@/features/analyze/store/analyze-store';
+import { useFetchPlaylist, usePlaylistFilters } from '@/features/analyze/hooks';
+import { formatDuration } from '@/lib/ythelper';
+
+export default function PlaylistAnalyzer() {
+  // Store state
+  const {
+    playlistUrl,
+    playlistData,
+    sortBy,
+    playbackSpeed,
+    isLoading,
+    setPlaylistUrl,
+    setSortBy,
+    setPlaybackSpeed
+  } = useAnalyzeStore();
+
+  // Data fetching hook
+  const { fetchPlaylist } = useFetchPlaylist();
+
+  // Data processing hook
+  const {
+    sortedVideos,
+    adjustedDuration,
+    rangeOptions
+  } = usePlaylistFilters();
+
+  return (
+    <div>
+      {/* Input */}
+      <input
+        value={playlistUrl}
+        onChange={(e) => setPlaylistUrl(e.target.value)}
+        placeholder="Enter playlist URL"
+      />
+      <button onClick={fetchPlaylist} disabled={isLoading}>
+        {isLoading ? 'Loading...' : 'Analyze'}
+      </button>
+
+      {/* Results */}
+      {playlistData && (
+        <>
+          <div>
+            <h2>{playlistData.playlistDetails.title}</h2>
+            <p>Duration: {formatDuration(adjustedDuration)}</p>
+            <p>Videos: {sortedVideos.length}</p>
+          </div>
+
+          {/* Filters */}
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="position">Position</option>
+            <option value="duration">Duration</option>
+            <option value="views">Views</option>
+            <option value="likes">Likes</option>
+            <option value="publish date">Publish Date</option>
+          </select>
+
+          <select
+            value={playbackSpeed}
+            onChange={(e) => setPlaybackSpeed(e.target.value)}
+          >
+            <option value="0.5">0.5x</option>
+            <option value="1">1x</option>
+            <option value="1.5">1.5x</option>
+            <option value="2">2x</option>
+          </select>
+
+          {/* Video List */}
+          <div>
+            {sortedVideos.map((video) => (
+              <div key={video.id}>
+                <h3>{video.title}</h3>
+                <p>{formatDuration(video.duration)}</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+## Testing
+
+### Testing useFetchPlaylist
+
+```typescript
+import { renderHook, act } from '@testing-library/react';
+import { useFetchPlaylist } from './use-fetch-playlist';
+import { useAnalyzeStore } from '../store/analyze-store';
+
+describe('useFetchPlaylist', () => {
+  beforeEach(() => {
+    useAnalyzeStore.getState().reset();
+  });
+
+  test('should fetch playlist successfully', async () => {
+    const { result } = renderHook(() => useFetchPlaylist());
+    
+    useAnalyzeStore.getState().setPlaylistUrl('valid-url');
+    
+    await act(async () => {
+      await result.current.fetchPlaylist();
+    });
+    
+    const state = useAnalyzeStore.getState();
+    expect(state.playlistData).toBeDefined();
+    expect(state.isLoading).toBe(false);
+    expect(state.isSuccess).toBe(true);
+  });
+
+  test('should handle empty URL', async () => {
+    const { result } = renderHook(() => useFetchPlaylist());
+    
+    await act(async () => {
+      await result.current.fetchPlaylist();
+    });
+    
+    // Should show error toast and return early
+    expect(useAnalyzeStore.getState().isLoading).toBe(false);
+  });
+});
+```
+
+### Testing usePlaylistFilters
+
+```typescript
+import { renderHook } from '@testing-library/react';
+import { usePlaylistFilters } from './use-playlist-filters';
+import { useAnalyzeStore } from '../store/analyze-store';
+
+describe('usePlaylistFilters', () => {
+  beforeEach(() => {
+    useAnalyzeStore.getState().reset();
+  });
+
+  test('should filter videos by range', () => {
+    // Setup mock playlist data
+    const mockData = {
+      playlistDetails: { /* ... */ },
+      videos: [/* 10 mock videos */],
+      totalDuration: 1000,
+      totalVideos: 10
+    };
+    
+    useAnalyzeStore.getState().setPlaylistData(mockData);
+    useAnalyzeStore.getState().setRangeStart('1');
+    useAnalyzeStore.getState().setRangeEnd('5');
+    
+    const { result } = renderHook(() => usePlaylistFilters());
+    
+    expect(result.current.filteredVideos).toHaveLength(5);
+  });
+
+  test('should sort videos by views', () => {
+    // Setup and test sorting logic
+  });
+
+  test('should calculate adjusted duration', () => {
+    // Test playback speed adjustment
+  });
+});
+```
+

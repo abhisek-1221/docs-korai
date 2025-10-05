@@ -1,0 +1,604 @@
+---
+title: Playlist Analyzer Store
+description: Detailed documentation of the Zustand store for playlist analysis state management
+---
+
+## Overview
+
+The Playlist Analyzer store (`analyze-store.ts`) uses **Zustand** for global state management. It provides a centralized, type-safe way to manage playlist analysis state across the entire feature.
+
+## Store Location
+
+```
+/src/features/analyze/store/analyze-store.ts
+```
+
+## Complete Implementation
+
+```typescript
+import { create } from 'zustand';
+import type { PlaylistDetails, VideoItem } from '@/lib/youtube';
+
+interface PlaylistData {
+  playlistDetails: PlaylistDetails;
+  videos: VideoItem[];
+  totalDuration: number;
+  totalVideos: number;
+}
+
+interface AnalyzeState {
+  playlistUrl: string;
+  playlistData: PlaylistData | null;
+  rangeStart: string;
+  rangeEnd: string;
+  sortBy: string;
+  playbackSpeed: string;
+  searchQuery: string;
+  isLoading: boolean;
+  isSuccess: boolean;
+  error: string | null;
+}
+
+interface AnalyzeActions {
+  setPlaylistUrl: (url: string) => void;
+  setPlaylistData: (data: PlaylistData | null) => void;
+  setRangeStart: (start: string) => void;
+  setRangeEnd: (end: string) => void;
+  setSortBy: (sortBy: string) => void;
+  setPlaybackSpeed: (speed: string) => void;
+  setSearchQuery: (query: string) => void;
+  setIsLoading: (loading: boolean) => void;
+  setIsSuccess: (success: boolean) => void;
+  setError: (error: string | null) => void;
+  reset: () => void;
+}
+
+const initialState: AnalyzeState = {
+  playlistUrl: '',
+  playlistData: null,
+  rangeStart: '1',
+  rangeEnd: '100',
+  sortBy: 'position',
+  playbackSpeed: '1',
+  searchQuery: '',
+  isLoading: false,
+  isSuccess: false,
+  error: null
+};
+
+export const useAnalyzeStore = create<AnalyzeState & AnalyzeActions>((set) => ({
+  ...initialState,
+  setPlaylistUrl: (url) => set({ playlistUrl: url }),
+  setPlaylistData: (data) => set({ playlistData: data }),
+  setRangeStart: (start) => set({ rangeStart: start }),
+  setRangeEnd: (end) => set({ rangeEnd: end }),
+  setSortBy: (sortBy) => set({ sortBy: sortBy }),
+  setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
+  setSearchQuery: (query) => set({ searchQuery: query }),
+  setIsLoading: (loading) => set({ isLoading: loading }),
+  setIsSuccess: (success) => set({ isSuccess: success }),
+  setError: (error) => set({ error: error }),
+  reset: () => set(initialState)
+}));
+```
+
+## Type Definitions
+
+### PlaylistData
+
+Represents the complete playlist data structure returned from the API.
+
+```typescript
+interface PlaylistData {
+  playlistDetails: PlaylistDetails;  // Playlist metadata
+  videos: VideoItem[];               // Array of all videos
+  totalDuration: number;             // Total duration in seconds
+  totalVideos: number;               // Total video count
+}
+```
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `playlistDetails` | `PlaylistDetails` | Playlist title, description, thumbnails |
+| `videos` | `VideoItem[]` | Array of video objects with metadata |
+| `totalDuration` | `number` | Sum of all video durations (seconds) |
+| `totalVideos` | `number` | Total number of videos in playlist |
+
+---
+
+### AnalyzeState
+
+The main state interface containing all analyzer state.
+
+```typescript
+interface AnalyzeState {
+  playlistUrl: string;
+  playlistData: PlaylistData | null;
+  rangeStart: string;
+  rangeEnd: string;
+  sortBy: string;
+  playbackSpeed: string;
+  searchQuery: string;
+  isLoading: boolean;
+  isSuccess: boolean;
+  error: string | null;
+}
+```
+
+**State Properties:**
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `playlistUrl` | `string` | `''` | YouTube playlist URL input |
+| `playlistData` | `PlaylistData \| null` | `null` | Fetched playlist data |
+| `rangeStart` | `string` | `'1'` | Start video index (1-based) |
+| `rangeEnd` | `string` | `'100'` | End video index (1-based) |
+| `sortBy` | `string` | `'position'` | Sort criteria: position, duration, views, likes, publish date |
+| `playbackSpeed` | `string` | `'1'` | Playback speed multiplier (0.25 to 2) |
+| `searchQuery` | `string` | `''` | Video title search query |
+| `isLoading` | `boolean` | `false` | Data fetching in progress |
+| `isSuccess` | `boolean` | `false` | Fetch completed successfully |
+| `error` | `string \| null` | `null` | Error message if fetch failed |
+
+---
+
+### AnalyzeActions
+
+Actions to update the store state.
+
+```typescript
+interface AnalyzeActions {
+  setPlaylistUrl: (url: string) => void;
+  setPlaylistData: (data: PlaylistData | null) => void;
+  setRangeStart: (start: string) => void;
+  setRangeEnd: (end: string) => void;
+  setSortBy: (sortBy: string) => void;
+  setPlaybackSpeed: (speed: string) => void;
+  setSearchQuery: (query: string) => void;
+  setIsLoading: (loading: boolean) => void;
+  setIsSuccess: (success: boolean) => void;
+  setError: (error: string | null) => void;
+  reset: () => void;
+}
+```
+
+## Store Actions
+
+### setPlaylistUrl
+
+Updates the playlist URL input value.
+
+```typescript
+setPlaylistUrl: (url: string) => void
+```
+
+**Example:**
+```typescript
+const { setPlaylistUrl } = useAnalyzeStore();
+
+setPlaylistUrl('https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf');
+```
+
+---
+
+### setPlaylistData
+
+Sets the fetched playlist data or clears it.
+
+```typescript
+setPlaylistData: (data: PlaylistData | null) => void
+```
+
+**Example:**
+```typescript
+const { setPlaylistData } = useAnalyzeStore();
+
+// Set data after successful fetch
+const response = await fetch('/api/playlist?id=...');
+const data = await response.json();
+setPlaylistData(data);
+
+// Clear data
+setPlaylistData(null);
+```
+
+---
+
+### setRangeStart
+
+Sets the starting video index (1-based).
+
+```typescript
+setRangeStart: (start: string) => void
+```
+
+**Example:**
+```typescript
+const { setRangeStart } = useAnalyzeStore();
+
+setRangeStart('10'); // Start from 10th video
+```
+
+---
+
+### setRangeEnd
+
+Sets the ending video index (1-based).
+
+```typescript
+setRangeEnd: (end: string) => void
+```
+
+**Example:**
+```typescript
+const { setRangeEnd } = useAnalyzeStore();
+
+setRangeEnd('50'); // End at 50th video
+```
+
+**Note:** `setRangeEnd` is automatically called with `totalVideos` when data is fetched.
+
+---
+
+### setSortBy
+
+Sets the sort criteria for videos.
+
+```typescript
+setSortBy: (sortBy: string) => void
+```
+
+**Valid Values:**
+- `'position'` - Original playlist order (default)
+- `'duration'` - Sort by video duration (longest first)
+- `'views'` - Sort by view count (most viewed first)
+- `'likes'` - Sort by like count (most liked first)
+- `'publish date'` - Sort by publish date (newest first)
+
+**Example:**
+```typescript
+const { setSortBy } = useAnalyzeStore();
+
+setSortBy('views'); // Sort by most viewed
+```
+
+---
+
+### setPlaybackSpeed
+
+Sets the playback speed multiplier.
+
+```typescript
+setPlaybackSpeed: (speed: string) => void
+```
+
+**Valid Values:** `'0.25'`, `'0.5'`, `'0.75'`, `'1'`, `'1.25'`, `'1.5'`, `'1.75'`, `'2'`
+
+**Example:**
+```typescript
+const { setPlaybackSpeed } = useAnalyzeStore();
+
+setPlaybackSpeed('1.5'); // 1.5x speed
+```
+
+---
+
+### setSearchQuery
+
+Sets the search query for filtering videos by title.
+
+```typescript
+setSearchQuery: (query: string) => void
+```
+
+**Example:**
+```typescript
+const { setSearchQuery } = useAnalyzeStore();
+
+setSearchQuery('tutorial'); // Filter videos with "tutorial" in title
+```
+
+---
+
+### setIsLoading
+
+Sets the loading state during data fetch.
+
+```typescript
+setIsLoading: (loading: boolean) => void
+```
+
+**Example:**
+```typescript
+const { setIsLoading } = useAnalyzeStore();
+
+setIsLoading(true);  // Start loading
+// ... fetch data
+setIsLoading(false); // Stop loading
+```
+
+---
+
+### setIsSuccess
+
+Sets the success state after successful fetch (triggers success animation).
+
+```typescript
+setIsSuccess: (success: boolean) => void
+```
+
+**Example:**
+```typescript
+const { setIsSuccess } = useAnalyzeStore();
+
+setIsSuccess(true);  // Show success state
+// Auto-reset after 2 seconds in useFetchPlaylist hook
+```
+
+---
+
+### setError
+
+Sets the error message when fetch fails.
+
+```typescript
+setError: (error: string | null) => void
+```
+
+**Example:**
+```typescript
+const { setError } = useAnalyzeStore();
+
+try {
+  // ... fetch logic
+} catch (error) {
+  setError(error.message);
+}
+
+// Clear error
+setError(null);
+```
+
+---
+
+### reset
+
+Resets entire store to initial state.
+
+```typescript
+reset: () => void
+```
+
+**Example:**
+```typescript
+const { reset } = useAnalyzeStore();
+
+reset(); // Clear all data and reset to defaults
+```
+
+## Usage Examples
+
+### Basic Store Access
+
+```typescript
+import { useAnalyzeStore } from '@/features/analyze/store/analyze-store';
+
+function MyComponent() {
+  // Access state
+  const playlistUrl = useAnalyzeStore((state) => state.playlistUrl);
+  const isLoading = useAnalyzeStore((state) => state.isLoading);
+  
+  // Access actions
+  const setPlaylistUrl = useAnalyzeStore((state) => state.setPlaylistUrl);
+  
+  return (
+    <input
+      value={playlistUrl}
+      onChange={(e) => setPlaylistUrl(e.target.value)}
+      disabled={isLoading}
+    />
+  );
+}
+```
+
+---
+
+### Accessing Multiple Values
+
+```typescript
+import { useAnalyzeStore } from '@/features/analyze/store/analyze-store';
+
+function PlaylistSummary() {
+  // Destructure multiple values
+  const { playlistData, playbackSpeed, rangeStart, rangeEnd } = useAnalyzeStore();
+  
+  if (!playlistData) return null;
+  
+  return (
+    <div>
+      <p>Videos: {rangeStart} to {rangeEnd}</p>
+      <p>Speed: {playbackSpeed}x</p>
+      <p>Total: {playlistData.totalVideos} videos</p>
+    </div>
+  );
+}
+```
+
+---
+
+### Selective Subscription
+
+Optimize re-renders by selecting only needed values:
+
+```typescript
+import { useAnalyzeStore } from '@/features/analyze/store/analyze-store';
+
+function SearchBar() {
+  // Only re-render when searchQuery changes
+  const searchQuery = useAnalyzeStore((state) => state.searchQuery);
+  const setSearchQuery = useAnalyzeStore((state) => state.setSearchQuery);
+  
+  return (
+    <input
+      value={searchQuery}
+      onChange={(e) => setSearchQuery(e.target.value)}
+    />
+  );
+}
+```
+
+---
+
+### Complete Workflow Example
+
+```typescript
+import { useAnalyzeStore } from '@/features/analyze/store/analyze-store';
+
+function AnalyzeButton() {
+  const {
+    playlistUrl,
+    setIsLoading,
+    setIsSuccess,
+    setError,
+    setPlaylistData,
+    setRangeEnd
+  } = useAnalyzeStore();
+
+  const handleAnalyze = async () => {
+    // Start loading
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Fetch playlist data
+      const response = await fetch(`/api/playlist?id=${playlistUrl}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error);
+      }
+
+      // Update store with data
+      setPlaylistData(data);
+      setRangeEnd(data.totalVideos.toString());
+      setIsSuccess(true);
+
+      // Auto-reset success after 2s
+      setTimeout(() => setIsSuccess(false), 2000);
+    } catch (error) {
+      setError(error.message);
+      setTimeout(() => setError(null), 2000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return <button onClick={handleAnalyze}>Analyze</button>;
+}
+```
+
+## State Persistence
+
+The store does **not** persist state across page reloads. All state is reset when the page is refreshed.
+
+### Adding Persistence (Optional)
+
+To add persistence, you can use Zustand's persist middleware:
+
+```typescript
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+export const useAnalyzeStore = create<AnalyzeState & AnalyzeActions>()(
+  persist(
+    (set) => ({
+      ...initialState,
+      // ... actions
+    }),
+    {
+      name: 'analyze-storage', // localStorage key
+      partialize: (state) => ({
+        // Only persist these fields
+        playlistUrl: state.playlistUrl,
+        rangeStart: state.rangeStart,
+        rangeEnd: state.rangeEnd,
+        sortBy: state.sortBy,
+        playbackSpeed: state.playbackSpeed
+      })
+    }
+  )
+);
+```
+
+## Store Benefits
+
+### 1. Centralized State
+- Single source of truth for all analyzer state
+- Easy to debug and track state changes
+- Consistent state across components
+
+### 2. Type Safety
+- Full TypeScript support
+- Autocomplete for all state and actions
+- Compile-time error checking
+
+### 3. Performance
+- Fine-grained subscriptions prevent unnecessary re-renders
+- Zustand's shallow comparison optimization
+- No Provider wrapper needed
+
+### 4. Developer Experience
+- Simple API (no dispatch, actions, or reducers)
+- No boilerplate
+- Easy to test
+- DevTools integration
+
+## Testing
+
+Example tests for the store:
+
+```typescript
+import { useAnalyzeStore } from './analyze-store';
+
+describe('useAnalyzeStore', () => {
+  beforeEach(() => {
+    // Reset store before each test
+    useAnalyzeStore.getState().reset();
+  });
+
+  test('should set playlist URL', () => {
+    const { setPlaylistUrl, playlistUrl } = useAnalyzeStore.getState();
+    const url = 'https://youtube.com/playlist?list=PLtest';
+    
+    setPlaylistUrl(url);
+    
+    expect(useAnalyzeStore.getState().playlistUrl).toBe(url);
+  });
+
+  test('should set loading state', () => {
+    const { setIsLoading } = useAnalyzeStore.getState();
+    
+    setIsLoading(true);
+    expect(useAnalyzeStore.getState().isLoading).toBe(true);
+    
+    setIsLoading(false);
+    expect(useAnalyzeStore.getState().isLoading).toBe(false);
+  });
+
+  test('should reset to initial state', () => {
+    const { setPlaylistUrl, setSortBy, reset } = useAnalyzeStore.getState();
+    
+    setPlaylistUrl('test-url');
+    setSortBy('views');
+    
+    reset();
+    
+    const state = useAnalyzeStore.getState();
+    expect(state.playlistUrl).toBe('');
+    expect(state.sortBy).toBe('position');
+  });
+});
+```
+

@@ -1,0 +1,518 @@
+---
+title: Transcript Hooks
+description: Custom hooks for transcript fetching and YouTube player control
+---
+
+# Transcript Hooks
+
+The transcript feature uses three custom hooks to handle API fetching, YouTube player integration, and download functionality. Each hook encapsulates specific logic and interacts with the transcript store.
+
+## useFetchTranscript
+
+This hook handles fetching video details and transcript data from the API endpoints. It manages loading states, error handling, rate limiting, and data processing.
+
+### Implementation
+
+```typescript
+import { useToast } from '@/hooks/use-toast';
+import { useTranscribeStore } from '../store/transcribe-store';
+import type { TranscriptSegment } from '../store/transcribe-store';
+
+interface TranscriptResponse {
+  transcript: {
+    segments?: Array<{
+      text: string;
+      startTime: string;
+      endTime: string;
+    }>;
+    fullTranscript?: string;
+  };
+}
+
+export const useFetchTranscript = () => {
+  const { toast } = useToast();
+  const {
+    videoUrl,
+    setVideoDetails,
+    setTranscriptData,
+    setIsLoading,
+    setIsSuccess
+  } = useTranscribeStore();
+
+  const fetchTranscript = async () => {
+    if (!videoUrl) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a YouTube video URL',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    setIsSuccess(false);
+
+    try {
+      // Fetch video details
+      const videoResponse = await fetch('/api/videoDetail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl })
+      });
+
+      const videoData = await videoResponse.json();
+
+      if (!videoResponse.ok) {
+        throw new Error(videoData.error || 'Failed to fetch video details');
+      }
+
+      if (videoData.video) {
+        setVideoDetails(videoData.video);
+      }
+
+      // Fetch transcript
+      const transcriptResponse = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl })
+      });
+
+      if (transcriptResponse.status === 429) {
+        const data = await transcriptResponse.json();
+        toast({
+          title: 'Rate Limit Exceeded',
+          description: `Too many requests. Please try again in ${Math.ceil((data.reset - Date.now()) / 1000)} seconds.`,
+          variant: 'destructive'
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      if (!transcriptResponse.ok) {
+        const errorData = await transcriptResponse.json();
+        throw new Error(errorData.error || 'Failed to fetch transcript');
+      }
+
+      const transcriptData: TranscriptResponse =
+        await transcriptResponse.json();
+      processTranscriptData(transcriptData.transcript);
+
+      setIsSuccess(true);
+      setTimeout(() => setIsSuccess(false), 4000);
+    } catch (error: any) {
+      console.error('Error fetching data:', error);
+      setTranscriptData([]);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to fetch transcript',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const processTranscriptData = (transcript: any) => {
+    if (!transcript) return;
+
+    let formattedTranscript: TranscriptSegment[] = [];
+
+    if (transcript.segments) {
+      formattedTranscript = transcript.segments.map((segment: any) => ({
+        text: segment.text,
+        startTime: segment.startTime,
+        endTime: segment.endTime
+      }));
+    } else if (transcript.fullTranscript) {
+      formattedTranscript = [
+        {
+          text: transcript.fullTranscript,
+          startTime: '0:00',
+          endTime: '0:00'
+        }
+      ];
+    }
+
+    setTranscriptData(formattedTranscript);
+  };
+
+  return { fetchTranscript };
+};
+```
+
+### How It Works
+
+**Step 1: Validation**
+- Checks if `videoUrl` exists in store
+- Shows error toast if URL is empty
+- Returns early to prevent API calls
+
+**Step 2: Loading State**
+- Sets `isLoading` to `true` for UI feedback
+- Resets `isSuccess` to `false` to clear previous success state
+
+**Step 3: Fetch Video Details**
+- POSTs to `/api/videoDetail` with the video URL
+- Parses JSON response
+- Checks for HTTP errors and throws if failed
+- Updates store with `setVideoDetails()` if successful
+
+**Step 4: Fetch Transcript**
+- POSTs to `/api/transcribe` with the video URL
+- Handles rate limiting (429 status)
+  - Shows toast with countdown timer
+  - Returns early without throwing error
+- Checks for HTTP errors and throws if failed
+- Processes transcript data using helper function
+
+**Step 5: Process Transcript Data**
+- Handles two response formats:
+  1. **Segments Format**: Array of transcript segments with timestamps
+  2. **Full Transcript Format**: Single text block (fallback)
+- Maps segments to `TranscriptSegment[]` type
+- For full transcript, creates single segment with 0:00 timestamps
+- Updates store with `setTranscriptData()`
+
+**Step 6: Success Handling**
+- Sets `isSuccess` to `true` for button animation
+- Uses `setTimeout` to auto-reset after 4 seconds
+
+**Step 7: Error Handling**
+- Catches any errors from API calls
+- Logs error to console
+- Clears transcript data
+- Shows error toast with message
+
+**Step 8: Cleanup**
+- Always sets `isLoading` to `false` in finally block
+- Ensures loading state is cleared regardless of success/failure
+
+---
+
+## useYoutubePlayer
+
+This hook manages YouTube IFrame API integration. It loads the YouTube API script, initializes the player, and provides seek controls.
+
+### Implementation
+
+```typescript
+import { useEffect, useState, useCallback } from 'react';
+
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: (() => void) | undefined;
+  }
+}
+
+export const useYoutubePlayer = () => {
+  const [isApiReady, setIsApiReady] = useState(false);
+  const [isScriptLoaded, setIsScriptLoaded] = useState(false);
+
+  useEffect(() => {
+    // Check if API is already loaded
+    if (window.YT && window.YT.Player) {
+      setIsApiReady(true);
+      setIsScriptLoaded(true);
+      return;
+    }
+
+    // Check if script is already in the DOM
+    const existingScript = document.querySelector(
+      'script[src="https://www.youtube.com/iframe_api"]'
+    );
+
+    if (existingScript) {
+      setIsScriptLoaded(true);
+      // Wait for the API to be ready
+      const checkInterval = setInterval(() => {
+        if (window.YT && window.YT.Player) {
+          setIsApiReady(true);
+          clearInterval(checkInterval);
+        }
+      }, 100);
+
+      return () => clearInterval(checkInterval);
+    }
+
+    // Load the YouTube IFrame API script
+    window.onYouTubeIframeAPIReady = () => {
+      setIsApiReady(true);
+    };
+
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    tag.async = true;
+    tag.onload = () => setIsScriptLoaded(true);
+
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+
+    // No cleanup needed - keep the API loaded for other components
+  }, []);
+
+  const initializePlayer = useCallback(
+    (elementId: string, videoId: string, onReady?: (player: any) => void) => {
+      if (!isApiReady || !window.YT) return null;
+
+      try {
+        const player = new window.YT.Player(elementId, {
+          videoId: videoId,
+          events: {
+            onReady: (event: any) => {
+              if (onReady) onReady(event.target);
+            },
+            onError: (event: any) => {
+              console.error('YouTube player error:', event.data);
+            }
+          }
+        });
+        return player;
+      } catch (error) {
+        console.error('Error initializing YouTube player:', error);
+        return null;
+      }
+    },
+    [isApiReady]
+  );
+
+  const seekTo = useCallback((player: any, timeInSeconds: number) => {
+    if (player && typeof player.seekTo === 'function') {
+      player.seekTo(timeInSeconds, true);
+      if (typeof player.playVideo === 'function') {
+        player.playVideo();
+      }
+    }
+  }, []);
+
+  return {
+    isApiReady,
+    isScriptLoaded,
+    initializePlayer,
+    seekTo
+  };
+};
+```
+
+### How It Works
+
+**Loading YouTube IFrame API**
+
+The `useEffect` hook handles three scenarios:
+
+1. **API Already Loaded**: If `window.YT.Player` exists, immediately set both flags to `true`
+
+2. **Script Already in DOM**: If script tag exists but API not ready
+   - Set `isScriptLoaded` to `true`
+   - Poll every 100ms until `window.YT.Player` is available
+   - Clear interval when ready
+
+3. **Fresh Load**: If script doesn't exist
+   - Define `window.onYouTubeIframeAPIReady` callback
+   - Create script tag with src `https://www.youtube.com/iframe_api`
+   - Set async attribute for non-blocking load
+   - Insert before first script tag in document
+   - Set `isScriptLoaded` when script loads
+   - YouTube calls the callback when API is ready
+
+**initializePlayer(elementId, videoId, onReady)**
+
+Creates a YouTube player instance:
+
+- **Parameters**:
+  - `elementId`: DOM element ID where player will be mounted
+  - `videoId`: YouTube video ID to load
+  - `onReady`: Optional callback receiving player instance
+
+- **Process**:
+  1. Checks if API is ready and `window.YT` exists
+  2. Creates new `YT.Player` instance
+  3. Configures `videoId` for the video to play
+  4. Sets up event handlers:
+     - `onReady`: Calls provided callback with player instance
+     - `onError`: Logs error data to console
+  5. Returns player instance or `null` if error
+
+- **Error Handling**: Wrapped in try-catch, logs errors and returns `null`
+
+**seekTo(player, timeInSeconds)**
+
+Seeks video to specific timestamp and starts playback:
+
+- **Parameters**:
+  - `player`: YouTube player instance
+  - `timeInSeconds`: Target time in seconds
+
+- **Process**:
+  1. Validates player exists and has `seekTo` method
+  2. Calls `player.seekTo(time, true)` - second parameter allows seeking ahead
+  3. Calls `player.playVideo()` to auto-play after seek
+
+- **Safety**: Checks method existence before calling to prevent errors
+
+**Return Values**
+
+- `isApiReady`: True when YouTube API is loaded and ready
+- `isScriptLoaded`: True when script tag is loaded (API may still be initializing)
+- `initializePlayer`: Function to create player instances
+- `seekTo`: Function to seek and play video at timestamp
+
+---
+
+## useTranscriptDownload
+
+This hook provides functions to download transcripts in three formats: full text, timestamped text, and SRT subtitles.
+
+### Implementation
+
+```typescript
+import { useTranscribeStore } from '../store/transcribe-store';
+
+export const useTranscriptDownload = () => {
+  const { transcriptData, videoDetails } = useTranscribeStore();
+
+  const downloadFullTranscript = () => {
+    const fullTranscript = transcriptData.map((entry) => entry.text).join(' ');
+    downloadFile(
+      fullTranscript,
+      `transcript-${videoDetails?.title || 'video'}.txt`
+    );
+  };
+
+  const downloadTimestampedTranscript = () => {
+    const formattedTranscript = transcriptData
+      .map(
+        (entry) => `[${entry.startTime} - ${entry.endTime}]\n${entry.text}\n`
+      )
+      .join('\n');
+    downloadFile(
+      formattedTranscript,
+      `timestamped-transcript-${videoDetails?.title || 'video'}.txt`
+    );
+  };
+
+  const downloadSrtSubtitles = () => {
+    const srtContent = transcriptData
+      .map((entry, index) => {
+        const startTime = convertToSrtTime(entry.startTime);
+        const endTime = convertToSrtTime(entry.endTime);
+        return `${index + 1}\n${startTime} --> ${endTime}\n${entry.text}\n`;
+      })
+      .join('\n');
+    downloadFile(srtContent, `subtitles-${videoDetails?.title || 'video'}.srt`);
+  };
+
+  const convertToSrtTime = (timeStr: string): string => {
+    const [minutes, seconds] = timeStr.split(':').map(Number);
+    const totalSeconds = minutes * 60 + seconds;
+    const hours = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},000`;
+  };
+
+  const downloadFile = (content: string, filename: string) => {
+    const element = document.createElement('a');
+    const file = new Blob([content], { type: 'text/plain' });
+    element.href = URL.createObjectURL(file);
+    element.download = filename;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+    URL.revokeObjectURL(element.href);
+  };
+
+  return {
+    downloadFullTranscript,
+    downloadTimestampedTranscript,
+    downloadSrtSubtitles
+  };
+};
+```
+
+### How It Works
+
+**downloadFullTranscript()**
+
+Creates plain text file with continuous transcript:
+
+1. Maps over `transcriptData` extracting only `text` property
+2. Joins all text with spaces (single paragraph format)
+3. Generates filename: `transcript-{video-title}.txt`
+4. Calls `downloadFile()` to trigger browser download
+
+**Example Output**:
+```
+Welcome to this video Today we'll be discussing React hooks Let's start with useState...
+```
+
+**downloadTimestampedTranscript()**
+
+Creates formatted text file with timestamps:
+
+1. Maps over `transcriptData` formatting each entry as:
+   ```
+   [startTime - endTime]
+   text
+   ```
+2. Joins entries with newlines for separation
+3. Generates filename: `timestamped-transcript-{video-title}.txt`
+4. Calls `downloadFile()` to trigger download
+
+**Example Output**:
+```
+[0:00 - 0:03]
+Welcome to this video
+
+[0:03 - 0:07]
+Today we'll be discussing React hooks
+
+[0:07 - 0:12]
+Let's start with useState
+```
+
+**downloadSrtSubtitles()**
+
+Creates SRT subtitle file:
+
+1. Maps over `transcriptData` with index
+2. Converts timestamps from "MM:SS" to SRT format "HH:MM:SS,000"
+3. Formats each entry as SRT subtitle block:
+   ```
+   1
+   00:00:00,000 --> 00:00:03,000
+   Welcome to this video
+   ```
+4. Joins all blocks with newlines
+5. Generates filename: `subtitles-{video-title}.srt`
+6. Calls `downloadFile()` to trigger download
+
+**convertToSrtTime(timeStr)**
+
+Converts "MM:SS" format to SRT time format "HH:MM:SS,000":
+
+1. Splits input by ":" and converts to numbers
+2. Calculates total seconds: `minutes * 60 + seconds`
+3. Extracts hours: `totalSeconds / 3600` (floor)
+4. Extracts minutes: `(totalSeconds % 3600) / 60` (floor)
+5. Extracts seconds: `totalSeconds % 60`
+6. Pads each value to 2 digits with leading zeros
+7. Returns formatted string with ",000" milliseconds suffix
+
+**Example**: `"5:30"` → `"00:05:30,000"`
+
+**downloadFile(content, filename)**
+
+Triggers browser download:
+
+1. Creates hidden anchor element (`<a>`)
+2. Creates Blob with content as plain text
+3. Generates object URL from Blob
+4. Sets `href` to object URL
+5. Sets `download` attribute to filename
+6. Appends element to document body
+7. Programmatically clicks element to trigger download
+8. Removes element from DOM
+9. Revokes object URL to free memory
+
+This approach works across all modern browsers and doesn't require user interaction beyond clicking the download button.

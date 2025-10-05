@@ -1,0 +1,179 @@
+---
+title: "Video Processing"
+---
+
+This document provides a detailed explanation of the video processing functions in the AI backend. These functions handle tasks such as downloading videos, creating clips, adding subtitles, and applying various visual and audio enhancements.
+
+### download_youtube_video
+
+The `download_youtube_video` function downloads a YouTube video using `yt-dlp` with support for cookies to access private or age-restricted content.
+
+```python
+def download_youtube_video(youtube_url: str, cookies_path: str, output_path: str) -> str:
+    """Download YouTube video using yt-dlp with cookies and return the downloaded file path."""
+    # ... (implementation details)
+```
+
+**Parameters:**
+- `youtube_url`: The URL of the YouTube video to download.
+- `cookies_path`: The path to a cookies file for authentication.
+- `output_path`: The path to save the downloaded video.
+
+**Returns:**
+- The path to the downloaded video file.
+
+---
+
+### get_font_for_language
+
+The `get_font_for_language` function selects an appropriate font for a given language, which is crucial for rendering subtitles correctly.
+
+```python
+def get_font_for_language(language_code: str) -> str:
+    """Get appropriate font based on language"""
+    # ... (implementation details)
+```
+
+**Parameters:**
+- `language_code`: The language code for which to find a font.
+
+**Returns:**
+- The name of the recommended font.
+
+---
+
+### create_video_clip
+
+The `create_video_clip` function creates a video clip from a series of frames, applying face tracking and smart cropping to keep the main speaker in focus.
+
+```python
+def create_video_clip(tracks, scores, pyframes_path, pyavi_path, audio_path, output_path, duration, aspect_ratio: str = "9:16", framerate=25):
+    # ... (implementation details)
+```
+
+**Parameters:**
+- `tracks`: Tracking data for faces in the video.
+- `scores`: Scores indicating the importance of each track.
+- `pyframes_path`: The path to the directory of video frames.
+- `pyavi_path`: The path to the directory for intermediate video files.
+- `audio_path`: The path to the audio file for the clip.
+- `output_path`: The path to save the final video clip.
+- `duration`: The duration of the clip.
+- `aspect_ratio`: The desired aspect ratio of the clip.
+- `framerate`: The framerate of the video.
+
+---
+
+### hex_to_bgr_color
+
+The `hex_to_bgr_color` function converts a hex color code to a BGR color object compatible with `pysubs2`.
+
+```python
+def hex_to_bgr_color(hex_color: str) -> pysubs2.Color:
+    """Convert hex color to BGR Color object for pysubs2"""
+    # ... (implementation details)
+```
+
+**Parameters:**
+- `hex_color`: The hex color string (e.g., `#FFFFFF`).
+
+**Returns:**
+- A `pysubs2.Color` object.
+
+---
+
+### create_subtitles_with_ffmpeg
+
+The `create_subtitles_with_ffmpeg` function generates and burns subtitles into a video using `ffmpeg`.
+
+```python
+def create_subtitles_with_ffmpeg(transcript_segments: list, clip_start: float, clip_end: float, 
+                               clip_video_path: str, output_path: str, max_words: int = 5, 
+                               target_language: str = None, aspect_ratio: str = "9:16", 
+                               subtitle_position: str = "bottom", subtitle_customization: SubtitleCustomization = None):
+    # ... (implementation details)
+```
+
+**Parameters:**
+- `transcript_segments`: A list of transcript segments with timing information.
+- `clip_start`: The start time of the clip.
+- `clip_end`: The end time of the clip.
+- `clip_video_path`: The path to the video clip.
+- `output_path`: The path to save the video with subtitles.
+- `max_words`: The maximum number of words per subtitle line.
+- `target_language`: The target language for the subtitles.
+- `aspect_ratio`: The aspect ratio of the video.
+- `subtitle_position`: The position of the subtitles.
+- `subtitle_customization`: A `SubtitleCustomization` object for styling.
+
+---
+
+### add_background_music
+
+The `add_background_music` function adds background music to a video with a specified volume level.
+
+```python
+def add_background_music(input_video_path: str, output_video_path: str, background_music_s3_key: str, background_music_volume: float = 0.1):
+    """Adds background music to a video with specified volume level."""
+    # ... (implementation details)
+```
+
+**Parameters:**
+- `input_video_path`: The path to the input video.
+- `output_video_path`: The path to save the video with background music.
+- `background_music_s3_key`: The S3 key for the background music file.
+- `background_music_volume`: The volume of the background music.
+
+---
+
+### add_watermark
+
+The `add_watermark` function adds a watermark to the top-left corner of a video.
+
+```python
+def add_watermark(input_video_path: str, output_video_path: str, watermark_s3_key: str):
+    """Adds a watermark to the top-left corner of a video, scaled appropriately."""
+    # ... (implementation details)
+```
+
+**Parameters:**
+- `input_video_path`: The path to the input video.
+- `output_video_path`: The path to save the video with the watermark.
+- `watermark_s3_key`: The S3 key for the watermark image.
+
+---
+
+### transcribe_audio_for_subtitles
+
+The `transcribe_audio_for_subtitles` function transcribes an audio file to generate segments for subtitles.
+
+```python
+def transcribe_audio_for_subtitles(audio_path: str, whisperx_model, language_code: str):
+    """Transcribe an audio file to get segments for subtitles."""
+    # ... (implementation details)
+```
+
+**Parameters:**
+- `audio_path`: The path to the audio file.
+- `whisperx_model`: The WhisperX model to use for transcription.
+- `language_code`: The language of the audio.
+
+**Returns:**
+- A list of transcript segments with word-level timing.
+
+---
+
+### process_clip
+
+The `process_clip` function is the core function for processing a single video clip. It handles everything from cutting the clip to adding translations, subtitles, watermarks, and background music.
+
+```python
+def process_clip(base_dir: str, original_video_path: str, s3_key: str, start_time: float, end_time: float, clip_index: int, transcript_segments: list, whisperx_model, detected_language: str, diarize_segments=None, target_language: str = None, sarvam_client=None, openrouter_client=None, aspect_ratio: str = "9:16", subtitles: bool = True, watermark_s3_key: Optional[str] = None, subtitle_position: str = "bottom", subtitle_customization: SubtitleCustomization = None, background_music_s3_key: Optional[str] = None, background_music_volume: float = 0.1):
+    # ... (implementation details)
+```
+
+**Parameters:**
+- This function takes a large number of parameters to control the entire clip processing pipeline. Refer to the source code for a detailed list.
+
+**Returns:**
+- The S3 key of the processed clip.

@@ -1,0 +1,815 @@
+---
+title: Transcript Component
+description: Main UI component for the Generate Transcript feature
+---
+
+# Transcript Component
+
+The `TranscribeViewPage` component is the main UI for the Generate Transcript feature. It renders the video input form, video player, video details, and transcript sections with search and download capabilities.
+
+## Component Implementation
+
+```typescript
+'use client';
+
+import { useEffect, useCallback, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Clock,
+  Eye,
+  ThumbsUp,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  Download
+} from 'lucide-react';
+import type React from 'react';
+import FeatureCard from '@/components/hsr/FeatureCard';
+import { FancyButton } from '@/components/ui/fancy-button';
+import { formatDate, formatNumber } from '@/lib/ythelper';
+import PageContainer from '@/components/layout/page-container';
+import { Heading } from '@/components/ui/heading';
+import { useTranscribeStore } from '../store/transcribe-store';
+import { useFetchTranscript } from '../hooks/use-fetch-transcript';
+import { useYoutubePlayer } from '../hooks/use-youtube-player';
+import { useTranscriptDownload } from '../hooks/use-transcript-download';
+import { validateYoutubeVideoUrl } from '@/lib/youtube-validator';
+import { toast } from 'sonner';
+
+export default function TranscribeViewPage() {
+  const {
+    videoUrl,
+    videoDetails,
+    transcriptData,
+    searchQuery,
+    showFullDescription,
+    isLoading,
+    isSuccess,
+    setVideoUrl,
+    setSearchQuery,
+    setShowFullDescription,
+    setYoutubePlayer
+  } = useTranscribeStore();
+
+  const { fetchTranscript } = useFetchTranscript();
+  const { isApiReady, isScriptLoaded, initializePlayer, seekTo } =
+    useYoutubePlayer();
+  const {
+    downloadFullTranscript,
+    downloadTimestampedTranscript,
+    downloadSrtSubtitles
+  } = useTranscriptDownload();
+
+  // Initialize YouTube player when API is ready and video details are available
+  useEffect(() => {
+    if (isApiReady && videoDetails?.id) {
+      // Small delay to ensure the iframe element is rendered
+      const timer = setTimeout(() => {
+        const player = initializePlayer(
+          'youtube-player',
+          videoDetails.id,
+          (playerInstance) => {
+            setYoutubePlayer(playerInstance);
+          }
+        );
+      }, 100);
+
+      return () => clearTimeout(timer);
+    }
+  }, [isApiReady, videoDetails?.id, initializePlayer, setYoutubePlayer]);
+
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+
+      // Check if URL is empty
+      if (!videoUrl || !videoUrl.trim()) {
+        toast.error('Please enter a YouTube video URL');
+        return;
+      }
+
+      // Validate YouTube URL
+      const validation = validateYoutubeVideoUrl(videoUrl);
+
+      if (!validation.isValid) {
+        toast.error(
+          validation.error || 'Please enter a valid YouTube video URL'
+        );
+        return;
+      }
+
+      fetchTranscript();
+    },
+    [fetchTranscript, videoUrl]
+  );
+
+  const handleTimestampClick = useCallback(
+    (startTime: string) => {
+      const player = useTranscribeStore.getState().youtubePlayer;
+      if (player) {
+        const [minutes, seconds] = startTime.split(':').map(Number);
+        const timeInSeconds = minutes * 60 + seconds;
+        seekTo(player, timeInSeconds);
+      }
+    },
+    [seekTo]
+  );
+
+  const fullTranscript = useMemo(
+    () => transcriptData.map((entry) => entry.text).join(' '),
+    [transcriptData]
+  );
+
+  const filteredTranscripts = useMemo(
+    () =>
+      transcriptData.filter((entry) =>
+        entry?.text?.toLowerCase().includes(searchQuery?.toLowerCase())
+      ),
+    [transcriptData, searchQuery]
+  );
+
+  return (
+    <PageContainer scrollable>
+      <div className='w-full space-y-4'>
+        <div className='flex items-start justify-between'>
+          <Heading
+            title='Video Transcribe'
+            description='Get transcripts from YouTube videos'
+          />
+        </div>
+
+        {/* Input Form */}
+        <Card className='bg-background border-zinc-800'>
+          <CardContent className='p-4'>
+            <form onSubmit={handleSubmit} className='flex space-x-2'>
+              <Input
+                type='text'
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder='Enter YouTube video URL...'
+                className='flex-1'
+              />
+              <FancyButton
+                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                  e.preventDefault();
+                  handleSubmit(e as any);
+                }}
+                loading={isLoading}
+                success={isSuccess}
+                label='Get Transcript'
+              />
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Welcome Message - Only shown initially */}
+        {!videoDetails && <FeatureCard type='transcribe' />}
+
+        {/* Video Details and Transcript */}
+        {videoDetails && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className='space-y-4'
+          >
+            {/* Video Info Card */}
+            <Card className='bg-background border-zinc-800'>
+              <CardContent className='p-4'>
+                <div className='grid gap-4 md:grid-cols-[400px,1fr]'>
+                  <div className='relative aspect-video w-full overflow-hidden rounded-lg bg-black'>
+                    {isScriptLoaded && videoDetails?.id && (
+                      <div
+                        id='youtube-player'
+                        key={videoDetails.id}
+                        className='absolute inset-0 h-full w-full'
+                      />
+                    )}
+                  </div>
+                  <div className='space-y-2'>
+                    <h2 className='text-lg font-bold'>{videoDetails.title}</h2>
+                    <p className='text-muted-foreground'>
+                      {videoDetails.channelTitle}
+                    </p>
+                    <div className='flex flex-wrap gap-2'>
+                      <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+                        <Calendar className='h-4 w-4 text-yellow-600' />
+                        {formatDate(videoDetails.publishedAt)}
+                      </span>
+                      <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+                        <Eye className='h-4 w-4 text-blue-400' />
+                        {formatNumber(videoDetails.viewCount)} views
+                      </span>
+                      <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+                        <ThumbsUp className='h-4 w-4 text-green-500' />
+                        {formatNumber(videoDetails.likeCount)} likes
+                      </span>
+                    </div>
+                    <div>
+                      <p
+                        className={`text-muted-foreground ${showFullDescription ? '' : 'line-clamp-2'}`}
+                      >
+                        {videoDetails.description}
+                      </p>
+                      <Button
+                        variant='ghost'
+                        onClick={() =>
+                          setShowFullDescription(!showFullDescription)
+                        }
+                        className='text-muted-foreground hover:text-foreground mt-2 h-auto p-0'
+                      >
+                        {showFullDescription ? (
+                          <>
+                            Show less <ChevronUp className='ml-1 h-4 w-4' />
+                          </>
+                        ) : (
+                          <>
+                            Show more <ChevronDown className='ml-1 h-4 w-4' />
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Transcripts */}
+            {transcriptData.length > 0 && (
+              <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
+                {/* Timestamped Transcript */}
+                <Card className='bg-background border-zinc-800'>
+                  <CardContent className='p-4'>
+                    <div className='flex flex-col space-y-2'>
+                      <div className='mb-4 flex items-center justify-between'>
+                        <h3 className='text-lg font-semibold'>
+                          Timestamped Transcript
+                        </h3>
+                        <div className='flex gap-2'>
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={downloadTimestampedTranscript}
+                            className='rounded-full text-xs'
+                          >
+                            <Download className='mr-1 h-3 w-3' />
+                            TXT
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={downloadSrtSubtitles}
+                            className='rounded-full text-xs'
+                          >
+                            <Download className='mr-1 h-3 w-3' />
+                            SRT
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Search Input */}
+                      <div className='relative'>
+                        <Input
+                          type='text'
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder='Search in transcript...'
+                          className='w-full'
+                        />
+                      </div>
+
+                      <ScrollArea className='h-[400px]'>
+                        <div className='space-y-3'>
+                          {filteredTranscripts.map((entry, index) => (
+                            <motion.div
+                              key={index}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{
+                                duration: 0.3,
+                                delay: index * 0.05
+                              }}
+                              className='bg-secondary/50 hover:bg-secondary cursor-pointer rounded-lg p-3 transition-colors'
+                              onClick={() =>
+                                handleTimestampClick(entry.startTime)
+                              }
+                            >
+                              <div className='mb-1 flex items-center gap-2 text-sm text-blue-400'>
+                                <Clock className='h-4 w-4' />
+                                {entry.startTime} - {entry.endTime}
+                              </div>
+                              <p className='text-sm'>{entry.text}</p>
+                            </motion.div>
+                          ))}
+
+                          {/* No results message */}
+                          {filteredTranscripts.length === 0 && (
+                            <div className='text-muted-foreground py-4 text-center'>
+                              No matching transcripts found
+                            </div>
+                          )}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Full Transcript */}
+                <Card className='bg-background border-zinc-800'>
+                  <CardContent className='p-4'>
+                    <div className='mb-4 flex items-center justify-between'>
+                      <h3 className='text-lg font-semibold'>Full Transcript</h3>
+                      <Button
+                        variant='ghost'
+                        size='icon'
+                        onClick={downloadFullTranscript}
+                        className='rounded-full'
+                      >
+                        <Download className='h-4 w-4' />
+                      </Button>
+                    </div>
+                    <ScrollArea className='h-[450px]'>
+                      <p className='text-sm whitespace-pre-wrap'>
+                        {fullTranscript}
+                      </p>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </div>
+    </PageContainer>
+  );
+}
+```
+
+## Component Structure
+
+The component is organized into seven main sections:
+
+### 1. Store and Hook Connections
+
+Connects to the transcript store and three custom hooks:
+
+```typescript
+const {
+  videoUrl,
+  videoDetails,
+  transcriptData,
+  searchQuery,
+  showFullDescription,
+  isLoading,
+  isSuccess,
+  setVideoUrl,
+  setSearchQuery,
+  setShowFullDescription,
+  setYoutubePlayer
+} = useTranscribeStore();
+
+const { fetchTranscript } = useFetchTranscript();
+const { isApiReady, isScriptLoaded, initializePlayer, seekTo } = useYoutubePlayer();
+const {
+  downloadFullTranscript,
+  downloadTimestampedTranscript,
+  downloadSrtSubtitles
+} = useTranscriptDownload();
+```
+
+### 2. YouTube Player Initialization
+
+`useEffect` that initializes the YouTube player when conditions are met:
+
+**Conditions**:
+- `isApiReady` is `true` (YouTube API loaded)
+- `videoDetails.id` exists (video data fetched)
+
+**Process**:
+1. Sets 100ms timeout to ensure DOM element is rendered
+2. Calls `initializePlayer('youtube-player', videoDetails.id, callback)`
+3. Callback receives player instance and saves to store via `setYoutubePlayer()`
+4. Cleanup function clears timeout on unmount or dependency change
+
+**Dependencies**: `[isApiReady, videoDetails?.id, initializePlayer, setYoutubePlayer]`
+
+### 3. Form Submission Handler
+
+`handleSubmit` validates input and triggers transcript fetch:
+
+```typescript
+const handleSubmit = useCallback(
+  (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Check if URL is empty
+    if (!videoUrl || !videoUrl.trim()) {
+      toast.error('Please enter a YouTube video URL');
+      return;
+    }
+
+    // Validate YouTube URL
+    const validation = validateYoutubeVideoUrl(videoUrl);
+
+    if (!validation.isValid) {
+      toast.error(
+        validation.error || 'Please enter a valid YouTube video URL'
+      );
+      return;
+    }
+
+    fetchTranscript();
+  },
+  [fetchTranscript, videoUrl]
+);
+```
+
+**Steps**:
+1. Prevents default form submission
+2. Checks for empty URL and shows error toast
+3. Validates URL format using `validateYoutubeVideoUrl()`
+4. Shows validation error if invalid
+5. Calls `fetchTranscript()` if valid
+
+### 4. Timestamp Click Handler
+
+`handleTimestampClick` seeks video to clicked timestamp:
+
+```typescript
+const handleTimestampClick = useCallback(
+  (startTime: string) => {
+    const player = useTranscribeStore.getState().youtubePlayer;
+    if (player) {
+      const [minutes, seconds] = startTime.split(':').map(Number);
+      const timeInSeconds = minutes * 60 + seconds;
+      seekTo(player, timeInSeconds);
+    }
+  },
+  [seekTo]
+);
+```
+
+**Process**:
+1. Gets player instance from store using `getState()` (avoids re-renders)
+2. Parses timestamp string "MM:SS" to minutes and seconds
+3. Converts to total seconds: `minutes * 60 + seconds`
+4. Calls `seekTo()` to jump video to that time
+
+### 5. Memoized Values
+
+Two computed values using `useMemo` for performance:
+
+**fullTranscript**: Joins all transcript segments into single string
+```typescript
+const fullTranscript = useMemo(
+  () => transcriptData.map((entry) => entry.text).join(' '),
+  [transcriptData]
+);
+```
+
+**filteredTranscripts**: Filters segments based on search query
+```typescript
+const filteredTranscripts = useMemo(
+  () =>
+    transcriptData.filter((entry) =>
+      entry?.text?.toLowerCase().includes(searchQuery?.toLowerCase())
+    ),
+  [transcriptData, searchQuery]
+);
+```
+
+Both recalculate only when dependencies change, preventing unnecessary re-renders.
+
+---
+
+## UI Sections
+
+### Header Section
+
+Page title and description:
+
+```tsx
+<Heading
+  title='Video Transcribe'
+  description='Get transcripts from YouTube videos'
+/>
+```
+
+### Input Form Section
+
+Input field and submit button:
+
+```tsx
+<Card className='bg-background border-zinc-800'>
+  <CardContent className='p-4'>
+    <form onSubmit={handleSubmit} className='flex space-x-2'>
+      <Input
+        type='text'
+        value={videoUrl}
+        onChange={(e) => setVideoUrl(e.target.value)}
+        placeholder='Enter YouTube video URL...'
+        className='flex-1'
+      />
+      <FancyButton
+        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+          e.preventDefault();
+          handleSubmit(e as any);
+        }}
+        loading={isLoading}
+        success={isSuccess}
+        label='Get Transcript'
+      />
+    </form>
+  </CardContent>
+</Card>
+```
+
+**Features**:
+- Controlled input bound to `videoUrl` state
+- FancyButton shows loading spinner during fetch
+- Success animation when transcript loaded
+- Prevents default to use custom validation
+
+### Welcome Card Section
+
+Shows feature card only before first submission:
+
+```tsx
+{!videoDetails && <FeatureCard type='transcribe' />}
+```
+
+Conditional render - disappears after video details are fetched.
+
+### Video Details Section
+
+Grid layout with video player and metadata:
+
+```tsx
+<Card className='bg-background border-zinc-800'>
+  <CardContent className='p-4'>
+    <div className='grid gap-4 md:grid-cols-[400px,1fr]'>
+      {/* Video Player */}
+      <div className='relative aspect-video w-full overflow-hidden rounded-lg bg-black'>
+        {isScriptLoaded && videoDetails?.id && (
+          <div
+            id='youtube-player'
+            key={videoDetails.id}
+            className='absolute inset-0 h-full w-full'
+          />
+        )}
+      </div>
+      
+      {/* Video Info */}
+      <div className='space-y-2'>
+        <h2 className='text-lg font-bold'>{videoDetails.title}</h2>
+        <p className='text-muted-foreground'>
+          {videoDetails.channelTitle}
+        </p>
+        
+        {/* Statistics Badges */}
+        <div className='flex flex-wrap gap-2'>
+          <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+            <Calendar className='h-4 w-4 text-yellow-600' />
+            {formatDate(videoDetails.publishedAt)}
+          </span>
+          <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+            <Eye className='h-4 w-4 text-blue-400' />
+            {formatNumber(videoDetails.viewCount)} views
+          </span>
+          <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+            <ThumbsUp className='h-4 w-4 text-green-500' />
+            {formatNumber(videoDetails.likeCount)} likes
+          </span>
+        </div>
+        
+        {/* Description with Toggle */}
+        <div>
+          <p
+            className={`text-muted-foreground ${showFullDescription ? '' : 'line-clamp-2'}`}
+          >
+            {videoDetails.description}
+          </p>
+          <Button
+            variant='ghost'
+            onClick={() => setShowFullDescription(!showFullDescription)}
+            className='text-muted-foreground hover:text-foreground mt-2 h-auto p-0'
+          >
+            {showFullDescription ? (
+              <>
+                Show less <ChevronUp className='ml-1 h-4 w-4' />
+              </>
+            ) : (
+              <>
+                Show more <ChevronDown className='ml-1 h-4 w-4' />
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  </CardContent>
+</Card>
+```
+
+**Layout**:
+- Responsive grid: single column on mobile, 400px + remaining space on desktop
+- Player container: aspect-video ratio with black background
+- Player element: Uses `id='youtube-player'` for initialization, `key` forces re-mount on video change
+
+**Statistics**:
+- Three badges with icons and formatted numbers
+- Color-coded icons (yellow calendar, blue eye, green thumbs up)
+- Uses `formatDate()` and `formatNumber()` helper functions
+
+**Description**:
+- Conditional CSS class: `line-clamp-2` when collapsed, full text when expanded
+- Toggle button switches `showFullDescription` state
+- Button content changes based on state (Show more/less + icon)
+
+### Timestamped Transcript Section
+
+Left column in transcript grid:
+
+```tsx
+<Card className='bg-background border-zinc-800'>
+  <CardContent className='p-4'>
+    <div className='flex flex-col space-y-2'>
+      {/* Header with Download Buttons */}
+      <div className='mb-4 flex items-center justify-between'>
+        <h3 className='text-lg font-semibold'>Timestamped Transcript</h3>
+        <div className='flex gap-2'>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={downloadTimestampedTranscript}
+            className='rounded-full text-xs'
+          >
+            <Download className='mr-1 h-3 w-3' />
+            TXT
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={downloadSrtSubtitles}
+            className='rounded-full text-xs'
+          >
+            <Download className='mr-1 h-3 w-3' />
+            SRT
+          </Button>
+        </div>
+      </div>
+
+      {/* Search Input */}
+      <div className='relative'>
+        <Input
+          type='text'
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder='Search in transcript...'
+          className='w-full'
+        />
+      </div>
+
+      {/* Transcript List */}
+      <ScrollArea className='h-[400px]'>
+        <div className='space-y-3'>
+          {filteredTranscripts.map((entry, index) => (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: 0.3,
+                delay: index * 0.05
+              }}
+              className='bg-secondary/50 hover:bg-secondary cursor-pointer rounded-lg p-3 transition-colors'
+              onClick={() => handleTimestampClick(entry.startTime)}
+            >
+              <div className='mb-1 flex items-center gap-2 text-sm text-blue-400'>
+                <Clock className='h-4 w-4' />
+                {entry.startTime} - {entry.endTime}
+              </div>
+              <p className='text-sm'>{entry.text}</p>
+            </motion.div>
+          ))}
+
+          {/* No Results Message */}
+          {filteredTranscripts.length === 0 && (
+            <div className='text-muted-foreground py-4 text-center'>
+              No matching transcripts found
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  </CardContent>
+</Card>
+```
+
+**Features**:
+- **Download Buttons**: Two buttons for TXT (timestamped) and SRT formats
+- **Search Input**: Filters transcript in real-time as user types
+- **Scroll Area**: Fixed height of 400px with scroll for overflow
+- **Transcript Items**: 
+  - Animated entry with staggered delay (0.05s * index)
+  - Clickable to seek video
+  - Hover effect changes background opacity
+  - Shows timestamp with clock icon
+  - Displays transcript text
+- **Empty State**: Shows message when no search results found
+
+### Full Transcript Section
+
+Right column in transcript grid:
+
+```tsx
+<Card className='bg-background border-zinc-800'>
+  <CardContent className='p-4'>
+    <div className='mb-4 flex items-center justify-between'>
+      <h3 className='text-lg font-semibold'>Full Transcript</h3>
+      <Button
+        variant='ghost'
+        size='icon'
+        onClick={downloadFullTranscript}
+        className='rounded-full'
+      >
+        <Download className='h-4 w-4' />
+      </Button>
+    </div>
+    <ScrollArea className='h-[450px]'>
+      <p className='text-sm whitespace-pre-wrap'>
+        {fullTranscript}
+      </p>
+    </ScrollArea>
+  </CardContent>
+</Card>
+```
+
+**Features**:
+- Single download button (icon only) for plain text format
+- Scroll area with 450px height (slightly taller than timestamped section)
+- Uses `whitespace-pre-wrap` to preserve line breaks if present
+- Displays memoized `fullTranscript` string
+
+---
+
+## Animations
+
+### Framer Motion Wrapper
+
+Entire video details section wrapped in motion div:
+
+```tsx
+<motion.div
+  initial={{ opacity: 0 }}
+  animate={{ opacity: 1 }}
+  className='space-y-4'
+>
+```
+
+Fades in when `videoDetails` becomes available.
+
+### Transcript Item Animation
+
+Each transcript segment has staggered animation:
+
+```tsx
+<motion.div
+  key={index}
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{
+    duration: 0.3,
+    delay: index * 0.05
+  }}
+>
+```
+
+**Effect**: Items fade in and slide up from bottom, each delayed by 50ms more than previous.
+
+---
+
+## Responsive Layout
+
+### Transcript Grid
+
+```tsx
+<div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
+```
+
+- Mobile/Tablet: Single column (timestamped on top, full below)
+- Desktop (lg breakpoint): Two columns side-by-side
+
+### Video Info Grid
+
+```tsx
+<div className='grid gap-4 md:grid-cols-[400px,1fr]'>
+```
+
+- Mobile: Single column (player on top)
+- Tablet/Desktop (md breakpoint): Player at 400px fixed width, info fills remaining space
+
+This layout ensures good viewing experience across all device sizes.

@@ -1,0 +1,458 @@
+---
+title: Rate Limiting with Upstash
+description: API rate limiting implementation using Upstash Redis
+---
+
+# Rate Limiting System
+
+The application implements rate limiting using Upstash Redis and the `@upstash/ratelimit` package. This prevents abuse by limiting the number of requests users can make to various API endpoints within specified time windows.
+
+## Upstash Redis Configuration
+
+### Redis Client Setup
+
+```typescript
+import { Redis } from '@upstash/redis';
+
+export const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!
+});
+```
+
+**How It Works**:
+- Creates Redis client using Upstash REST API
+- Requires two environment variables:
+  - `UPSTASH_REDIS_REST_URL`: HTTP endpoint for Redis instance
+  - `UPSTASH_REDIS_REST_TOKEN`: Authentication token
+- Uses REST protocol (not TCP) - perfect for serverless
+- No connection pooling needed - stateless HTTP requests
+
+**Upstash Benefits**:
+- **Serverless-First**: Designed for serverless environments
+- **Pay-Per-Request**: No idle connection costs
+- **Global Replication**: Low latency worldwide
+- **Redis-Compatible**: Standard Redis commands
+- **Built-in REST API**: Works in edge functions
+
+## Rate Limiter Configurations
+
+### Rate Limiter Implementation
+
+```typescript
+import { Ratelimit } from '@upstash/ratelimit';
+import { redis } from './upstash';
+
+export const transcribeRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(200, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:transcribe'
+});
+
+export const chatRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(200, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:chat'
+});
+
+export const ttsRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(20, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:tts'
+});
+
+export const mailRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(1000, '1 h'),
+  analytics: true,
+  prefix: 'ratelimit:mail'
+});
+
+// User-specific rate limiters
+export const userQuizLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, '24 h'), // 5 quizzes per 24 hours
+  analytics: true,
+  prefix: 'ratelimit:user:quiz'
+});
+
+export const userChatLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(30, '24 h'), // 30 chats per 24 hours
+  analytics: true,
+  prefix: 'ratelimit:user:chat'
+});
+```
+
+## Rate Limiter Types
+
+### Transcript Rate Limiter
+
+```typescript
+export const transcribeRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(200, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:transcribe'
+});
+```
+
+**Configuration**:
+- **Limit**: 200 requests per minute
+- **Window**: Sliding window (1 minute)
+- **Use Case**: YouTube transcript API calls
+- **Prefix**: `ratelimit:transcribe` (Redis key namespace)
+
+**Why 200/minute**: Transcript fetching is relatively cheap but should be limited to prevent rapid scraping.
+
+### Chat Rate Limiter
+
+```typescript
+export const chatRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(200, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:chat'
+});
+```
+
+**Configuration**:
+- **Limit**: 200 requests per minute
+- **Window**: Sliding window (1 minute)
+- **Use Case**: AI chat API calls
+- **Prefix**: `ratelimit:chat`
+
+**Why 200/minute**: Allows rapid back-and-forth conversation while preventing abuse.
+
+### TTS Rate Limiter
+
+```typescript
+export const ttsRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(20, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:tts'
+});
+```
+
+**Configuration**:
+- **Limit**: 20 requests per minute
+- **Window**: Sliding window (1 minute)
+- **Use Case**: Text-to-speech API calls
+- **Prefix**: `ratelimit:tts`
+
+**Why 20/minute**: TTS is more expensive (compute + bandwidth), stricter limit prevents cost overruns.
+
+### Mail Rate Limiter
+
+```typescript
+export const mailRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(1000, '1 h'),
+  analytics: true,
+  prefix: 'ratelimit:mail'
+});
+```
+
+**Configuration**:
+- **Limit**: 1000 requests per hour
+- **Window**: Sliding window (1 hour)
+- **Use Case**: Email sending (notifications, verifications)
+- **Prefix**: `ratelimit:mail`
+
+**Why 1000/hour**: Prevents email bombing while allowing legitimate bulk operations.
+
+### User Quiz Limiter
+
+```typescript
+export const userQuizLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, '24 h'),
+  analytics: true,
+  prefix: 'ratelimit:user:quiz'
+});
+```
+
+**Configuration**:
+- **Limit**: 5 requests per 24 hours **per user**
+- **Window**: Sliding window (24 hours)
+- **Use Case**: AI quiz generation (expensive operation)
+- **Prefix**: `ratelimit:user:quiz`
+
+**Why 5/day**: Quiz generation uses AI models (costly), limit prevents excessive usage by single user.
+
+### User Chat Limiter
+
+```typescript
+export const userChatLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(30, '24 h'),
+  analytics: true,
+  prefix: 'ratelimit:user:chat'
+});
+```
+
+**Configuration**:
+- **Limit**: 30 requests per 24 hours **per user**
+- **Window**: Sliding window (24 hours)
+- **Use Case**: AI chat conversations
+- **Prefix**: `ratelimit:user:chat`
+
+**Why 30/day**: Allows meaningful conversations while preventing single-user abuse of AI resources.
+
+## Sliding Window Algorithm
+
+The `slidingWindow` algorithm provides smooth rate limiting:
+
+```typescript
+Ratelimit.slidingWindow(limit, window)
+```
+
+**How It Works**:
+1. Divides time window into small segments
+2. Tracks requests in each segment
+3. Counts requests across moving window
+4. More accurate than fixed window (no edge-case spikes)
+
+**Example**: 200 requests per minute
+- Window divided into 6 segments (10 seconds each)
+- At any point, counts requests in last 60 seconds
+- If at 00:30, counts from 23:30 to 00:30 (not just current minute)
+
+**Advantages**:
+- No burst at window boundaries
+- Smoother request distribution
+- More fair to users
+
+## Usage in API Routes
+
+### Basic Usage
+
+```typescript
+import { transcribeRateLimiter } from '@/lib/ratelimit';
+
+export async function POST(req: Request) {
+  // Check rate limit
+  const identifier = 'global'; // or use IP/user ID
+  const { success, limit, remaining, reset } = 
+    await transcribeRateLimiter.limit(identifier);
+  
+  if (!success) {
+    return Response.json(
+      { 
+        error: 'Rate limit exceeded',
+        limit,
+        remaining,
+        reset 
+      },
+      { status: 429 }
+    );
+  }
+  
+  // Process request
+  // ...
+}
+```
+
+**Response Properties**:
+- `success`: Boolean - whether request allowed
+- `limit`: Total allowed requests in window
+- `remaining`: Requests remaining in current window
+- `reset`: Unix timestamp when limit resets
+
+### User-Specific Rate Limiting
+
+```typescript
+import { userQuizLimiter } from '@/lib/ratelimit';
+import { auth } from '@clerk/nextjs/server';
+
+export async function POST(req: Request) {
+  const { userId } = await auth();
+  
+  if (!userId) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  
+  // Rate limit per user
+  const { success, limit, remaining, reset } = 
+    await userQuizLimiter.limit(userId);
+  
+  if (!success) {
+    const resetDate = new Date(reset);
+    return Response.json(
+      {
+        error: 'Daily quiz limit exceeded',
+        limit,
+        remaining: 0,
+        reset,
+        message: `You've reached your daily limit of ${limit} quizzes. Try again after ${resetDate.toLocaleString()}`
+      },
+      { status: 429 }
+    );
+  }
+  
+  // Generate quiz
+  // ...
+}
+```
+
+**User-Specific Limiting**:
+- Uses `userId` as identifier
+- Each user gets independent quota
+- Prevents single user from consuming all resources
+- Fair distribution across user base
+
+### IP-Based Rate Limiting
+
+```typescript
+import { transcribeRateLimiter } from '@/lib/ratelimit';
+
+export async function POST(req: Request) {
+  // Get IP address
+  const ip = req.headers.get('x-forwarded-for') || 
+             req.headers.get('x-real-ip') || 
+             'unknown';
+  
+  const { success } = await transcribeRateLimiter.limit(ip);
+  
+  if (!success) {
+    return Response.json(
+      { error: 'Too many requests from this IP' },
+      { status: 429 }
+    );
+  }
+  
+  // Process request
+  // ...
+}
+```
+
+**IP-Based Limiting**:
+- Uses client IP address as identifier
+- Protects against unauthenticated abuse
+- Works before authentication
+- Gets IP from proxy headers (`x-forwarded-for`)
+
+## Analytics
+
+All rate limiters have `analytics: true` enabled:
+
+```typescript
+analytics: true
+```
+
+**Features**:
+- Tracks request patterns
+- Identifies abuse patterns
+- Viewable in Upstash dashboard
+- Helps tune limits over time
+
+**Metrics Tracked**:
+- Request counts per identifier
+- Success/blocked ratios
+- Peak usage times
+- Geographic distribution (if using IP)
+
+## Rate Limit Response Format
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "limit": 200,
+  "remaining": 195,
+  "reset": 1696636800000
+}
+```
+
+### Rate Limit Exceeded Response
+
+```json
+{
+  "error": "Rate limit exceeded",
+  "limit": 200,
+  "remaining": 0,
+  "reset": 1696636800000
+}
+```
+
+**HTTP Status**: 429 Too Many Requests
+
+### Client Handling
+
+Clients should:
+1. Check for 429 status code
+2. Read `reset` timestamp
+3. Calculate wait time: `(reset - Date.now()) / 1000` seconds
+4. Show user-friendly message with retry time
+5. Optionally implement exponential backoff
+
+## Environment Variables
+
+```bash
+# Upstash Redis
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-token-here
+```
+
+**Security**:
+- Token provides authentication
+- Keep token secret (never commit to git)
+- Rotate token if compromised
+- Use separate Redis instances for dev/prod
+
+## Redis Key Structure
+
+Rate limit data stored with prefixed keys:
+
+```
+ratelimit:transcribe:{identifier}
+ratelimit:chat:{identifier}
+ratelimit:tts:{identifier}
+ratelimit:mail:{identifier}
+ratelimit:user:quiz:{userId}
+ratelimit:user:chat:{userId}
+```
+
+**Format**: `{prefix}:{identifier}`
+
+**Example Keys**:
+```
+ratelimit:user:quiz:user_2abc123
+ratelimit:transcribe:192.168.1.1
+ratelimit:chat:global
+```
+
+**TTL**: Keys automatically expire after window duration, no manual cleanup needed.
+
+## Multiple Limiters
+
+Apply multiple limiters for layered protection:
+
+```typescript
+export async function POST(req: Request) {
+  const { userId } = await auth();
+  const ip = req.headers.get('x-forwarded-for') || 'unknown';
+  
+  // Check IP-based limit (global protection)
+  const ipLimit = await transcribeRateLimiter.limit(ip);
+  if (!ipLimit.success) {
+    return Response.json({ error: 'Too many requests' }, { status: 429 });
+  }
+  
+  // Check user-based limit (per-user quota)
+  const userLimit = await userQuizLimiter.limit(userId);
+  if (!userLimit.success) {
+    return Response.json({ error: 'Daily limit exceeded' }, { status: 429 });
+  }
+  
+  // Process request
+  // ...
+}
+```
+
+This provides protection at both IP and user levels.

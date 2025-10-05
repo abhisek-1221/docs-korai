@@ -1,0 +1,796 @@
+---
+title: YouTube Type Definitions
+description: Complete TypeScript interfaces and types for YouTube data structures
+---
+
+## Overview
+
+The YouTube type definitions (`/src/lib/youtube.ts`) provide TypeScript interfaces for all YouTube-related data structures used throughout the application.
+
+## Core Interfaces
+
+### PlaylistDetails
+
+Represents YouTube playlist metadata.
+
+```typescript
+export interface PlaylistDetails {
+  id: string
+  title: string
+  description: string
+  thumbnails: {
+    default: { url: string; width: number; height: number }
+    medium: { url: string; width: number; height: number }
+    high: { url: string; width: number; height: number }
+    standard?: { url: string; width: number; height: number }
+    maxres?: { url: string; width: number; height: number }
+  }
+}
+```
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `string` | Unique playlist identifier (starts with "PL") |
+| `title` | `string` | Playlist name |
+| `description` | `string` | Playlist description text |
+| `thumbnails` | `ThumbnailSet` | Available thumbnail sizes |
+
+**Example Usage:**
+
+```typescript
+import { PlaylistDetails } from '@/lib/youtube';
+
+const playlist: PlaylistDetails = {
+  id: 'PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf',
+  title: 'Python Tutorial for Beginners',
+  description: 'Complete Python programming course for beginners',
+  thumbnails: {
+    default: { 
+      url: 'https://i.ytimg.com/vi/abc/default.jpg', 
+      width: 120, 
+      height: 90 
+    },
+    medium: { 
+      url: 'https://i.ytimg.com/vi/abc/mqdefault.jpg', 
+      width: 320, 
+      height: 180 
+    },
+    high: { 
+      url: 'https://i.ytimg.com/vi/abc/hqdefault.jpg', 
+      width: 480, 
+      height: 360 
+    }
+  }
+};
+```
+
+**Thumbnail Availability:**
+- `default`, `medium`, `high` - Always available
+- `standard` (640x480) - Optional, available for most videos
+- `maxres` (1280x720) - Optional, available for HD content
+
+---
+
+### VideoItem
+
+Represents a single video with comprehensive metadata.
+
+```typescript
+export interface VideoItem {
+  id: string
+  title: string
+  description: string
+  thumbnails: {
+    default: { url: string; width: number; height: number }
+    medium: { url: string; width: number; height: number }
+    high: { url: string; width: number; height: number }
+  }
+  channelTitle: string
+  publishedAt: string
+  duration: number
+  viewCount: number
+  likeCount: number
+}
+```
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `string` | Unique video identifier (11 characters) |
+| `title` | `string` | Video title |
+| `description` | `string` | Video description (may be truncated) |
+| `thumbnails` | `ThumbnailSet` | Available thumbnail images |
+| `channelTitle` | `string` | Name of the channel that uploaded the video |
+| `publishedAt` | `string` | ISO 8601 timestamp of upload date |
+| `duration` | `number` | Video length in seconds |
+| `viewCount` | `number` | Total view count |
+| `likeCount` | `number` | Total like count |
+
+**Example Usage:**
+
+```typescript
+import { VideoItem } from '@/lib/youtube';
+
+const video: VideoItem = {
+  id: 'dQw4w9WgXcQ',
+  title: 'Rick Astley - Never Gonna Give You Up (Official Video)',
+  description: 'The official video for "Never Gonna Give You Up" by Rick Astley...',
+  thumbnails: {
+    default: { 
+      url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg', 
+      width: 120, 
+      height: 90 
+    },
+    medium: { 
+      url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg', 
+      width: 320, 
+      height: 180 
+    },
+    high: { 
+      url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg', 
+      width: 480, 
+      height: 360 
+    }
+  },
+  channelTitle: 'Rick Astley',
+  publishedAt: '2009-10-25T06:57:33Z',
+  duration: 213,
+  viewCount: 1234567890,
+  likeCount: 12345678
+};
+
+// Using with helper functions
+import { formatDuration, formatNumber } from '@/lib/ythelper';
+
+console.log(`Duration: ${formatDuration(video.duration)}`); // "3m 33s"
+console.log(`Views: ${formatNumber(video.viewCount)}`);     // "1.2B"
+console.log(`Likes: ${formatNumber(video.likeCount)}`);     // "12M"
+```
+
+---
+
+### ChannelData
+
+Represents YouTube channel information and statistics.
+
+```typescript
+export interface ChannelData {
+  name: string
+  username: string
+  videosCount: number
+  subscribers: number
+  subscriberRank?: number
+  totalViews: number
+  viewsRank?: number
+  thumbnails: any
+  country?: string
+}
+```
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | Channel display name |
+| `username` | `string` | Channel handle (e.g., "@LinusTechTips") |
+| `videosCount` | `number` | Total number of public videos |
+| `subscribers` | `number` | Current subscriber count |
+| `subscriberRank?` | `number` | Optional rank by subscribers |
+| `totalViews` | `number` | Lifetime view count across all videos |
+| `viewsRank?` | `number` | Optional rank by total views |
+| `thumbnails` | `any` | Channel avatar images |
+| `country?` | `string` | ISO country code (e.g., "US", "GB") |
+
+**Example Usage:**
+
+```typescript
+import { ChannelData } from '@/lib/youtube';
+import { formatNumber } from '@/lib/ythelper';
+
+const channel: ChannelData = {
+  name: 'Linus Tech Tips',
+  username: '@LinusTechTips',
+  videosCount: 5234,
+  subscribers: 15200000,
+  totalViews: 7123456789,
+  thumbnails: {
+    default: { 
+      url: 'https://yt3.ggpht.com/...', 
+      width: 88, 
+      height: 88 
+    },
+    medium: { 
+      url: 'https://yt3.ggpht.com/...', 
+      width: 240, 
+      height: 240 
+    },
+    high: { 
+      url: 'https://yt3.ggpht.com/...', 
+      width: 800, 
+      height: 800 
+    }
+  },
+  country: 'CA'
+};
+
+// Display formatted stats
+console.log(`${channel.name} (${channel.username})`);
+console.log(`Subscribers: ${formatNumber(channel.subscribers)}`);
+console.log(`Total Views: ${formatNumber(channel.totalViews)}`);
+console.log(`Videos: ${channel.videosCount.toLocaleString()}`);
+```
+
+---
+
+### ViewData
+
+Represents daily view statistics for data visualization.
+
+```typescript
+export interface ViewData {
+  name: string
+  views: number
+}
+```
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `name` | `string` | Day identifier (e.g., "1", "2", "3") |
+| `views` | `number` | View count for that day |
+
+**Example Usage:**
+
+```typescript
+import { ViewData } from '@/lib/youtube';
+
+const viewsData: ViewData[] = [
+  { name: '1', views: 234567 },
+  { name: '2', views: 198234 },
+  { name: '3', views: 267890 },
+  { name: '4', views: 223456 },
+  { name: '5', views: 245678 },
+  { name: '6', views: 256789 },
+  { name: '7', views: 278901 }
+];
+
+// Use with charting library (e.g., Recharts)
+import { LineChart, Line, XAxis, YAxis } from 'recharts';
+
+<LineChart data={viewsData}>
+  <XAxis dataKey="name" />
+  <YAxis />
+  <Line type="monotone" dataKey="views" stroke="#8884d8" />
+</LineChart>
+```
+
+**Note:** The `fetchViewsData()` function currently generates estimated data. For production, integrate YouTube Analytics API for accurate historical data.
+
+---
+
+### RecentVideo
+
+Represents a recent upload from a channel.
+
+```typescript
+export interface RecentVideo {
+  title: string
+  views: number
+  uploadTime: string
+  thumbnail: string
+  videoId: string
+  duration: number
+  likeCount: number
+}
+```
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `title` | `string` | Video title |
+| `views` | `number` | Current view count |
+| `uploadTime` | `string` | Human-readable time since upload (e.g., "2 days ago") |
+| `thumbnail` | `string` | High-quality thumbnail URL |
+| `videoId` | `string` | Unique video identifier |
+| `duration` | `number` | Video length in seconds |
+| `likeCount` | `number` | Total like count |
+
+**Example Usage:**
+
+```typescript
+import { RecentVideo } from '@/lib/youtube';
+import { formatNumber, formatDurationForDisplay } from '@/lib/ythelper';
+
+const recentVideos: RecentVideo[] = [
+  {
+    title: 'We Built a Custom Gaming PC',
+    views: 523000,
+    uploadTime: '2 days ago',
+    thumbnail: 'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
+    videoId: 'abc123',
+    duration: 1245,
+    likeCount: 45000
+  },
+  {
+    title: 'RTX 4090 Review - Is It Worth It?',
+    views: 1200000,
+    uploadTime: '5 days ago',
+    thumbnail: 'https://i.ytimg.com/vi/def456/hqdefault.jpg',
+    videoId: 'def456',
+    duration: 1567,
+    likeCount: 98000
+  }
+];
+
+// Display recent videos
+recentVideos.forEach((video) => {
+  console.log(`${video.title}`);
+  console.log(`  ${formatNumber(video.views)} views • ${video.uploadTime}`);
+  console.log(`  ${formatDurationForDisplay(video.duration)} • ${formatNumber(video.likeCount)} likes`);
+  console.log(`  Watch: https://www.youtube.com/watch?v=${video.videoId}`);
+});
+```
+
+---
+
+### VideoData
+
+Extended video information with formatted display values.
+
+```typescript
+export interface VideoData {
+  id: string
+  title: string
+  channel: string
+  channelId: string
+  views: number
+  viewsFormatted: string
+  published: string
+  description: string
+  likes: number
+  likesFormatted: string
+  comments: number
+  commentsFormatted: string
+  duration: number
+  durationFormatted: string
+  thumbnails: any
+}
+```
+
+**Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `string` | Unique video identifier |
+| `title` | `string` | Video title |
+| `channel` | `string` | Channel name |
+| `channelId` | `string` | Channel identifier |
+| `views` | `number` | Raw view count |
+| `viewsFormatted` | `string` | Formatted views (e.g., "1.2M views") |
+| `published` | `string` | Formatted publish date (e.g., "January 15, 2024") |
+| `description` | `string` | Full video description |
+| `likes` | `number` | Raw like count |
+| `likesFormatted` | `string` | Formatted likes (e.g., "12K") |
+| `comments` | `number` | Raw comment count |
+| `commentsFormatted` | `string` | Formatted comments (e.g., "1.2K") |
+| `duration` | `number` | Duration in seconds |
+| `durationFormatted` | `string` | Formatted duration (e.g., "15:23") |
+| `thumbnails` | `any` | Available thumbnail sizes |
+
+**Example Usage:**
+
+```typescript
+import { VideoData } from '@/lib/youtube';
+
+const videoData: VideoData = {
+  id: 'dQw4w9WgXcQ',
+  title: 'Rick Astley - Never Gonna Give You Up (Official Video)',
+  channel: 'Rick Astley',
+  channelId: 'UCuAXFkgsw1L7xaCfnd5JJOw',
+  views: 1234567890,
+  viewsFormatted: '1.2B views',
+  published: 'October 25, 2009',
+  description: 'The official video for "Never Gonna Give You Up" by Rick Astley...',
+  likes: 12345678,
+  likesFormatted: '12M',
+  comments: 1234567,
+  commentsFormatted: '1.2M',
+  duration: 213,
+  durationFormatted: '3:33',
+  thumbnails: {
+    default: { url: '...', width: 120, height: 90 },
+    medium: { url: '...', width: 320, height: 180 },
+    high: { url: '...', width: 480, height: 360 },
+    standard: { url: '...', width: 640, height: 480 },
+    maxres: { url: '...', width: 1280, height: 720 }
+  }
+};
+
+// Render video details
+function VideoDetailsComponent({ video }: { video: VideoData }) {
+  return (
+    <div>
+      <h1>{video.title}</h1>
+      <p>{video.channel}</p>
+      <div>
+        <span>{video.viewsFormatted}</span>
+        <span>{video.likesFormatted} likes</span>
+        <span>{video.commentsFormatted} comments</span>
+      </div>
+      <p>Published: {video.published}</p>
+      <p>Duration: {video.durationFormatted}</p>
+      <img src={video.thumbnails.high.url} alt={video.title} />
+      <p>{video.description}</p>
+    </div>
+  );
+}
+```
+
+**When to Use:**
+- Use `VideoData` when you need formatted display strings
+- Use `VideoItem` for raw data that you'll format yourself
+- `VideoData` is returned by `fetchVideoData()` helper function
+
+---
+
+## Type Usage Examples
+
+### Working with Playlists
+
+```typescript
+import { PlaylistDetails, VideoItem } from '@/lib/youtube';
+import { 
+  fetchPlaylistDetails, 
+  fetchPlaylistVideoIds, 
+  fetchVideoDetails 
+} from '@/lib/ythelper';
+
+async function getPlaylistWithVideos(playlistId: string) {
+  // Fetch playlist details
+  const playlist: PlaylistDetails = await fetchPlaylistDetails(playlistId);
+  
+  // Fetch all video IDs
+  const videoIds: string[] = await fetchPlaylistVideoIds(playlistId);
+  
+  // Fetch video details
+  const { videos, totalDuration }: { 
+    videos: VideoItem[]; 
+    totalDuration: number 
+  } = await fetchVideoDetails(videoIds);
+  
+  return {
+    playlist,
+    videos,
+    totalDuration,
+    videoCount: videos.length
+  };
+}
+```
+
+### Working with Channels
+
+```typescript
+import { ChannelData, RecentVideo } from '@/lib/youtube';
+import { fetchChannelData, fetchRecentVideos } from '@/lib/ythelper';
+
+async function getChannelOverview(channelId: string) {
+  // Fetch channel data
+  const channel: ChannelData = await fetchChannelData(channelId);
+  
+  // Fetch recent uploads
+  const recentVideos: RecentVideo[] = await fetchRecentVideos(channelId, 10);
+  
+  return {
+    channel,
+    recentVideos
+  };
+}
+```
+
+### Working with Video Analytics
+
+```typescript
+import { VideoData, ViewData } from '@/lib/youtube';
+import { fetchVideoData, fetchViewsData } from '@/lib/ythelper';
+
+async function analyzeVideo(videoId: string, channelId: string) {
+  // Fetch detailed video data
+  const video: VideoData = await fetchVideoData(videoId);
+  
+  // Fetch views trend (for visualization)
+  const viewsTrend: ViewData[] = await fetchViewsData(channelId, 7);
+  
+  // Calculate engagement rate
+  const engagementRate = (video.likes + video.comments) / video.views * 100;
+  
+  return {
+    video,
+    viewsTrend,
+    metrics: {
+      engagementRate: engagementRate.toFixed(2) + '%',
+      likesPerView: (video.likes / video.views).toFixed(4),
+      commentsPerView: (video.comments / video.views).toFixed(4)
+    }
+  };
+}
+```
+
+### Type Guards
+
+Create type guards for safer type checking:
+
+```typescript
+import { VideoItem, PlaylistDetails, ChannelData } from '@/lib/youtube';
+
+function isVideoItem(data: any): data is VideoItem {
+  return (
+    typeof data === 'object' &&
+    typeof data.id === 'string' &&
+    typeof data.title === 'string' &&
+    typeof data.duration === 'number' &&
+    typeof data.viewCount === 'number'
+  );
+}
+
+function isPlaylistDetails(data: any): data is PlaylistDetails {
+  return (
+    typeof data === 'object' &&
+    typeof data.id === 'string' &&
+    data.id.startsWith('PL') &&
+    typeof data.title === 'string' &&
+    data.thumbnails !== undefined
+  );
+}
+
+function isChannelData(data: any): data is ChannelData {
+  return (
+    typeof data === 'object' &&
+    typeof data.name === 'string' &&
+    typeof data.subscribers === 'number' &&
+    typeof data.videosCount === 'number'
+  );
+}
+
+// Usage
+function processYouTubeData(data: unknown) {
+  if (isVideoItem(data)) {
+    console.log(`Processing video: ${data.title}`);
+  } else if (isPlaylistDetails(data)) {
+    console.log(`Processing playlist: ${data.title}`);
+  } else if (isChannelData(data)) {
+    console.log(`Processing channel: ${data.name}`);
+  } else {
+    console.log('Unknown data type');
+  }
+}
+```
+
+---
+
+## React Component Type Examples
+
+### Video Card Component
+
+```typescript
+import { VideoItem } from '@/lib/youtube';
+import { formatNumber, formatDurationForDisplay } from '@/lib/ythelper';
+
+interface VideoCardProps {
+  video: VideoItem;
+  onClick?: (videoId: string) => void;
+}
+
+export function VideoCard({ video, onClick }: VideoCardProps) {
+  return (
+    <div 
+      className="video-card"
+      onClick={() => onClick?.(video.id)}
+    >
+      <img 
+        src={video.thumbnails.high.url} 
+        alt={video.title}
+        className="thumbnail"
+      />
+      <div className="duration">
+        {formatDurationForDisplay(video.duration)}
+      </div>
+      <h3>{video.title}</h3>
+      <p className="channel">{video.channelTitle}</p>
+      <div className="stats">
+        <span>{formatNumber(video.viewCount)} views</span>
+        <span>{formatNumber(video.likeCount)} likes</span>
+      </div>
+    </div>
+  );
+}
+```
+
+### Playlist Component
+
+```typescript
+import { PlaylistDetails, VideoItem } from '@/lib/youtube';
+
+interface PlaylistViewProps {
+  playlist: PlaylistDetails;
+  videos: VideoItem[];
+  totalDuration: number;
+}
+
+export function PlaylistView({ 
+  playlist, 
+  videos, 
+  totalDuration 
+}: PlaylistViewProps) {
+  const hours = Math.floor(totalDuration / 3600);
+  const minutes = Math.floor((totalDuration % 3600) / 60);
+  
+  return (
+    <div className="playlist-view">
+      <div className="playlist-header">
+        <img 
+          src={playlist.thumbnails.high.url} 
+          alt={playlist.title} 
+        />
+        <div>
+          <h1>{playlist.title}</h1>
+          <p>{playlist.description}</p>
+          <div className="stats">
+            <span>{videos.length} videos</span>
+            <span>{hours}h {minutes}m total</span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="video-list">
+        {videos.map((video, index) => (
+          <VideoCard key={video.id} video={video} index={index + 1} />
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### Channel Component
+
+```typescript
+import { ChannelData, RecentVideo } from '@/lib/youtube';
+import { formatNumber } from '@/lib/ythelper';
+
+interface ChannelProfileProps {
+  channel: ChannelData;
+  recentVideos: RecentVideo[];
+}
+
+export function ChannelProfile({ 
+  channel, 
+  recentVideos 
+}: ChannelProfileProps) {
+  return (
+    <div className="channel-profile">
+      <div className="channel-header">
+        <img 
+          src={channel.thumbnails.high.url} 
+          alt={channel.name}
+          className="avatar"
+        />
+        <div>
+          <h1>{channel.name}</h1>
+          <p>{channel.username}</p>
+          <div className="stats">
+            <span>{formatNumber(channel.subscribers)} subscribers</span>
+            <span>{formatNumber(channel.totalViews)} views</span>
+            <span>{channel.videosCount.toLocaleString()} videos</span>
+          </div>
+          {channel.country && (
+            <p>Country: {channel.country}</p>
+          )}
+        </div>
+      </div>
+      
+      <h2>Recent Uploads</h2>
+      <div className="recent-videos">
+        {recentVideos.map((video) => (
+          <div key={video.videoId} className="recent-video">
+            <img src={video.thumbnail} alt={video.title} />
+            <div>
+              <h3>{video.title}</h3>
+              <p>{formatNumber(video.views)} views • {video.uploadTime}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Generic Types and Utilities
+
+### Response Types
+
+Create generic response types for API endpoints:
+
+```typescript
+import { VideoItem, PlaylistDetails, ChannelData } from '@/lib/youtube';
+
+export type ApiResponse<T> = {
+  success: true;
+  data: T;
+} | {
+  success: false;
+  error: string;
+};
+
+// Specific response types
+export type VideoDetailResponse = ApiResponse<{ video: VideoItem }>;
+export type PlaylistResponse = ApiResponse<{
+  playlistDetails: PlaylistDetails;
+  videos: VideoItem[];
+  totalDuration: number;
+  totalVideos: number;
+}>;
+export type ChannelResponse = ApiResponse<ChannelData>;
+
+// Usage in API client
+async function fetchVideo(videoId: string): Promise<VideoDetailResponse> {
+  try {
+    const response = await fetch(`/api/videoDetail`, {
+      method: 'POST',
+      body: JSON.stringify({ videoUrl: `https://youtube.com/watch?v=${videoId}` })
+    });
+    
+    if (!response.ok) {
+      return { success: false, error: 'Failed to fetch video' };
+    }
+    
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+```
+
+---
+
+## Type Extensions
+
+Extend base types for specific use cases:
+
+```typescript
+import { VideoItem, ChannelData } from '@/lib/youtube';
+
+// Add computed fields
+export interface EnrichedVideoItem extends VideoItem {
+  durationFormatted: string;
+  viewsFormatted: string;
+  likesFormatted: string;
+  publishedFormatted: string;
+  url: string;
+}
+
+// Add local state
+export interface VideoItemWithState extends VideoItem {
+  isSelected: boolean;
+  isFavorite: boolean;
+  watchProgress?: number; // 0-100
+  lastWatched?: Date;
+}
+
+// Add relationship data
+export interface VideoWithChannel extends VideoItem {
+  channel: ChannelData;
+}
+
+// Partial updates
+export type VideoItemUpdate = Partial<VideoItem> & { id: string };
+```
+

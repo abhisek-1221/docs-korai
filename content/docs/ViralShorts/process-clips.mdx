@@ -1,0 +1,781 @@
+---
+title: Process Clips API & Export
+description: Clip selection, configuration, and export processing
+---
+
+# Process Clips Feature
+
+The Process Clips feature allows users to select identified clips, configure export settings (aspect ratio, language), and export them as finished short-form videos with subtitles.
+
+## Process Clips API Route
+
+**Location**: `/app/api/clips/process/route.ts`
+
+### Implementation
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { inngest } from '@/lib/inngest';
+
+export async function POST(req: NextRequest) {
+  try {
+    const { userId } = await auth();
+
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { videoId, s3Key, selectedClips, targetLanguage, aspectRatio } = body;
+
+    if (!videoId || !s3Key || !selectedClips || !aspectRatio) {
+      return NextResponse.json(
+        { error: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+
+    // Send event to Inngest
+    await inngest.send({
+      name: 'clips/process',
+      data: {
+        videoId,
+        s3Key,
+        selectedClips,
+        targetLanguage: targetLanguage || null,
+        aspectRatio,
+        userId
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Clip processing started'
+    });
+  } catch (error) {
+    console.error('Error starting clip processing:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### How It Works
+
+**Step 1: Authentication**
+```typescript
+const { userId } = await auth();
+
+if (!userId) {
+  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+}
+```
+
+Authenticates user with Clerk. Returns 401 if not logged in.
+
+**Step 2: Request Validation**
+```typescript
+const body = await req.json();
+const { videoId, s3Key, selectedClips, targetLanguage, aspectRatio } = body;
+
+if (!videoId || !s3Key || !selectedClips || !aspectRatio) {
+  return NextResponse.json(
+    { error: 'Missing required fields' },
+    { status: 400 }
+  );
+}
+```
+
+Validates required fields:
+- **videoId**: Database video record ID
+- **s3Key**: Original video location in S3
+- **selectedClips**: Array of clips with start/end times
+- **aspectRatio**: Output format (required)
+- **targetLanguage**: Translation language (optional, can be null)
+
+Returns 400 if any required field missing.
+
+**Step 3: Trigger Inngest Function**
+```typescript
+await inngest.send({
+  name: 'clips/process',
+  data: {
+    videoId,
+    s3Key,
+    selectedClips,
+    targetLanguage: targetLanguage || null,
+    aspectRatio,
+    userId
+  }
+});
+```
+
+Sends event to Inngest to trigger background processing:
+- **Event name**: `'clips/process'`
+- **Event data**: All configuration and clip selections
+- Non-blocking: Returns immediately
+
+**Step 4: Success Response**
+```typescript
+return NextResponse.json({
+  success: true,
+  message: 'Clip processing started'
+});
+```
+
+Returns success immediately. Actual export happens asynchronously.
+
+## Video Detail Page
+
+The main interface for viewing clips and initiating exports.
+
+**Location**: `/app/dashboard/clips/videos/[id]/page.tsx`
+
+### Component State
+
+```typescript
+const [video, setVideo] = useState<Video | null>(null);
+const [selectedClip, setSelectedClip] = useState<Clip | null>(null);
+const [isLoading, setIsLoading] = useState(true);
+const [selectedClipsForExport, setSelectedClipsForExport] = useState<Set<string>>(new Set());
+const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+const [targetLanguage, setTargetLanguage] = useState<string>('none');
+const [aspectRatio, setAspectRatio] = useState<string>('9:16');
+const [isProcessing, setIsProcessing] = useState(false);
+const [exportedClips, setExportedClips] = useState<ExportedClip[]>([]);
+const [clipVideoUrls, setClipVideoUrls] = useState<Record<string, string>>({});
+const [selectedExportedClip, setSelectedExportedClip] = useState<ExportedClip | null>(null);
+```
+
+**Key State Variables**:
+- **video**: Full video data with clips
+- **selectedClip**: Currently previewed clip (Identified tab)
+- **selectedClipsForExport**: Set of clip IDs selected for export
+- **isConfigModalOpen**: Export configuration modal visibility
+- **targetLanguage**: Selected translation language
+- **aspectRatio**: Selected aspect ratio
+- **exportedClips**: List of already exported clips
+- **clipVideoUrls**: Cached signed URLs for video playback
+- **selectedExportedClip**: Currently viewing exported clip
+
+### Tabs Layout
+
+The page uses a tabs interface with two views:
+
+**Tab 1: Identified Clips** (Default)
+- Shows all AI-identified clips
+- Allows clip selection with checkboxes
+- Displays clip preview and details
+- "Generate Shorts" button triggers export
+
+**Tab 2: Exported**
+- Shows previously exported clips
+- Video player for exported clips
+- Download functionality
+- Metadata display
+
+### Identified Clips Tab
+
+**Layout**: 3-column grid
+1. **Left Column**: Clips list with checkboxes
+2. **Right Columns**: Preview player and clip details
+
+**Clip Selection**:
+```typescript
+const toggleClipSelection = (clipId: string) => {
+  const newSelection = new Set(selectedClipsForExport);
+  if (newSelection.has(clipId)) {
+    newSelection.delete(clipId);
+  } else {
+    newSelection.add(clipId);
+  }
+  setSelectedClipsForExport(newSelection);
+};
+```
+
+Uses Set for efficient add/remove operations.
+
+**Clip Cards**:
+```tsx
+{video.clips.map((clip) => (
+  <Card
+    key={clip.id}
+    className={`transition-all ${
+      selectedClip?.id === clip.id
+        ? 'ring-primary shadow-md ring-2'
+        : 'hover:shadow-md'
+    }`}
+  >
+    <CardHeader className='p-4 pb-2'>
+      <div className='flex items-start gap-3'>
+        <Checkbox
+          checked={selectedClipsForExport.has(clip.id)}
+          onCheckedChange={() => toggleClipSelection(clip.id)}
+          onClick={(e) => e.stopPropagation()}
+        />
+        <div
+          className='flex-1 cursor-pointer'
+          onClick={() => setSelectedClip(clip)}
+        >
+          <div className='flex items-start justify-between gap-2'>
+            <CardTitle className='line-clamp-2 text-base'>
+              {clip.title}
+            </CardTitle>
+            <Badge variant='secondary' className='flex-shrink-0'>
+              <TrendingUp className='mr-1 h-3 w-3' />
+              {clip.viralityScore}
+            </Badge>
+          </div>
+          <CardDescription className='mt-1 text-xs'>
+            {formatTime(clip.start)} - {formatTime(clip.end)}
+          </CardDescription>
+        </div>
+      </div>
+    </CardHeader>
+    <CardContent className='p-4 pt-0 pl-14'>
+      <p className='text-muted-foreground line-clamp-2 text-sm'>
+        {clip.summary}
+      </p>
+    </CardContent>
+  </Card>
+))}
+```
+
+**Clip Card Features**:
+- Checkbox for selection (left side)
+- Title and virality score badge
+- Timestamp range
+- Summary preview
+- Click to view details
+- Ring highlight when selected for preview
+
+**Video Preview**:
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>Preview</CardTitle>
+    <CardDescription>
+      {formatTime(selectedClip.start)} - {formatTime(selectedClip.end)}
+    </CardDescription>
+  </CardHeader>
+  <CardContent>
+    <div className='aspect-video w-full'>
+      {getYouTubeEmbedUrl(
+        video.youtubeUrl,
+        selectedClip.start,
+        selectedClip.end
+      ) ? (
+        <iframe
+          key={selectedClip.id}
+          src={
+            getYouTubeEmbedUrl(
+              video.youtubeUrl,
+              selectedClip.start,
+              selectedClip.end
+            )!
+          }
+          className='h-full w-full rounded-lg'
+          allowFullScreen
+          title={selectedClip.title}
+        />
+      ) : (
+        <div className='bg-muted flex h-full w-full items-center justify-center rounded-lg'>
+          <p className='text-muted-foreground'>Unable to load video</p>
+        </div>
+      )}
+    </div>
+  </CardContent>
+</Card>
+```
+
+Embeds YouTube video with start/end time parameters.
+
+**YouTube Embed URL Construction**:
+```typescript
+const getYouTubeEmbedUrl = (
+  url: string,
+  startTime?: string,
+  endTime?: string
+) => {
+  try {
+    const videoId = url.match(
+      /(?:youtu\.be\/|youtube\.com(?:\/embed\/|\/v\/|\/watch\?v=|\/user\/\S+|\/ytscreeningroom\?v=|\/sandalsResorts#\w\/\w\/.*\/))([^\/&\?]{10,12})/
+    )?.[1];
+    if (!videoId) return null;
+
+    const startSeconds = startTime ? convertTimeToSeconds(startTime) : 0;
+    const endSeconds = endTime ? convertTimeToSeconds(endTime) : 0;
+
+    const params = new URLSearchParams();
+    if (startSeconds > 0)
+      params.append('start', Math.floor(startSeconds).toString());
+    if (endSeconds > 0)
+      params.append('end', Math.floor(endSeconds).toString());
+    params.append('autoplay', '0');
+
+    return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+  } catch {
+    return null;
+  }
+};
+```
+
+Extracts video ID and adds start/end parameters for clip preview.
+
+**Time Conversion**:
+```typescript
+const convertTimeToSeconds = (time: string): number => {
+  // Handle both formats: "154.623" (seconds) and "2:34" (time format)
+  const numericTime = parseFloat(time);
+  if (!isNaN(numericTime)) {
+    return numericTime;
+  }
+
+  // Handle HH:MM:SS or MM:SS
+  const parts = time.split(':').map(Number);
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  } else if (parts.length === 2) {
+    return parts[0] * 60 + parts[1];
+  }
+  return 0;
+};
+
+const formatTime = (timeStr: string): string => {
+  const seconds = convertTimeToSeconds(timeStr);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${minutes}:${secs.toString().padStart(2, '0')}`;
+};
+```
+
+Handles both numeric (seconds) and formatted (MM:SS) time strings from API.
+
+**Clip Details Card**:
+```tsx
+<Card>
+  <CardHeader>
+    <div className='flex items-start justify-between'>
+      <div className='flex-1'>
+        <CardTitle className='mb-2 text-2xl'>
+          {selectedClip.title}
+        </CardTitle>
+        <CardDescription>
+          Duration: {formatTime(selectedClip.start)} - {formatTime(selectedClip.end)}
+        </CardDescription>
+      </div>
+      <Badge variant='default' className='px-3 py-1 text-base'>
+        <TrendingUp className='mr-1 h-4 w-4' />
+        {selectedClip.viralityScore}
+      </Badge>
+    </div>
+  </CardHeader>
+  <CardContent className='space-y-6'>
+    {/* Summary */}
+    <div>
+      <h3 className='mb-2 font-semibold'>Summary</h3>
+      <p className='text-muted-foreground'>{selectedClip.summary}</p>
+    </div>
+
+    <Separator />
+
+    {/* Related Topics */}
+    <div>
+      <h3 className='mb-2 font-semibold'>Related Topics</h3>
+      <div className='flex flex-wrap gap-2'>
+        {selectedClip.relatedTopics.map((topic, index) => (
+          <Badge key={index} variant='outline'>
+            {topic}
+          </Badge>
+        ))}
+      </div>
+    </div>
+
+    <Separator />
+
+    {/* Transcript */}
+    <div>
+      <h3 className='mb-2 font-semibold'>Transcript</h3>
+      <div className='bg-muted rounded-lg p-4'>
+        <p className='text-sm whitespace-pre-wrap'>
+          {selectedClip.transcript}
+        </p>
+      </div>
+    </div>
+  </CardContent>
+</Card>
+```
+
+Shows full details for selected clip.
+
+### Generate Shorts Button
+
+```tsx
+<Button
+  onClick={handleGenerateShorts}
+  disabled={selectedClipsForExport.size === 0}
+  size='sm'
+>
+  <Sparkles className='mr-2 h-4 w-4' />
+  Generate Shorts ({selectedClipsForExport.size})
+</Button>
+```
+
+- Disabled when no clips selected
+- Shows count of selected clips
+- Opens configuration modal
+
+### Export Configuration Modal
+
+```tsx
+<Dialog open={isConfigModalOpen} onOpenChange={setIsConfigModalOpen}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Export Configuration</DialogTitle>
+      <DialogDescription>
+        Configure the settings for your exported clips
+      </DialogDescription>
+    </DialogHeader>
+
+    <div className='space-y-4 py-4'>
+      {/* Aspect Ratio Selector */}
+      <div className='space-y-2'>
+        <Label htmlFor='aspect-ratio'>Aspect Ratio</Label>
+        <Select value={aspectRatio} onValueChange={setAspectRatio}>
+          <SelectTrigger id='aspect-ratio'>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='1:1'>1:1 (Square)</SelectItem>
+            <SelectItem value='16:9'>16:9 (Landscape)</SelectItem>
+            <SelectItem value='9:16'>9:16 (Portrait/Stories)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Language Selector */}
+      <div className='space-y-2'>
+        <Label htmlFor='target-language'>
+          Target Language (Optional)
+        </Label>
+        <Select value={targetLanguage} onValueChange={setTargetLanguage}>
+          <SelectTrigger id='target-language'>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='none'>None (Original)</SelectItem>
+            <SelectItem value='en'>English</SelectItem>
+            <SelectItem value='es'>Spanish</SelectItem>
+            <SelectItem value='fr'>French</SelectItem>
+            <SelectItem value='de'>German</SelectItem>
+            <SelectItem value='hi'>Hindi</SelectItem>
+            <SelectItem value='ja'>Japanese</SelectItem>
+            <SelectItem value='ko'>Korean</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Info Display */}
+      <div className='bg-muted rounded-lg p-4 text-sm'>
+        <p className='mb-2 font-semibold'>
+          Selected Clips: {selectedClipsForExport.size}
+        </p>
+        <p className='text-muted-foreground'>
+          Subtitles and styling will be applied automatically
+        </p>
+      </div>
+    </div>
+
+    <DialogFooter>
+      <Button
+        variant='outline'
+        onClick={() => setIsConfigModalOpen(false)}
+      >
+        Cancel
+      </Button>
+      <Button onClick={handleExportClips} disabled={isProcessing}>
+        {isProcessing ? (
+          <>
+            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+            Processing...
+          </>
+        ) : (
+          <>
+            <Sparkles className='mr-2 h-4 w-4' />
+            Generate Clips
+          </>
+        )}
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+```
+
+**Configuration Options**:
+
+**Aspect Ratio**:
+- **1:1 (Square)**: For Instagram posts, Facebook
+- **16:9 (Landscape)**: For YouTube, Twitter
+- **9:16 (Portrait)**: For TikTok, Instagram Reels, YouTube Shorts
+
+Default: `'9:16'` (most popular for short-form content)
+
+**Target Language**:
+- **none**: Keep original language
+- **en**: English
+- **es**: Spanish
+- **fr**: French
+- **de**: German
+- **hi**: Hindi
+- **ja**: Japanese
+- **ko**: Korean
+
+Default: `'none'` (no translation)
+
+### Export Clips Handler
+
+```typescript
+const handleExportClips = async () => {
+  if (!video || selectedClipsForExport.size === 0) return;
+
+  setIsProcessing(true);
+  try {
+    const selectedClips = video.clips
+      .filter((clip) => selectedClipsForExport.has(clip.id))
+      .map((clip) => ({
+        start: clip.start,
+        end: clip.end
+      }));
+
+    const response = await fetch('/api/clips/process', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        videoId: video.id,
+        s3Key: video.s3Key,
+        selectedClips,
+        targetLanguage: targetLanguage === 'none' ? null : targetLanguage,
+        aspectRatio
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to start clip processing');
+    }
+
+    toast({
+      title: 'Success!',
+      description: 'Clip processing started. Check the Exported tab soon.'
+    });
+
+    setIsConfigModalOpen(false);
+    setSelectedClipsForExport(new Set());
+    setTargetLanguage('none');
+    setAspectRatio('9:16');
+  } catch (error) {
+    console.error('Error processing clips:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to start clip processing',
+      variant: 'destructive'
+    });
+  } finally {
+    setIsProcessing(false);
+  }
+};
+```
+
+**Export Flow**:
+1. Validates video and selections exist
+2. Filters selected clips from full list
+3. Maps to start/end times only (API needs)
+4. Converts language 'none' to null
+5. POSTs to `/api/clips/process`
+6. Shows success notification
+7. Closes modal
+8. Resets selections and config
+9. Sets defaults for next export
+
+### Exported Clips Tab
+
+**Fetch Exported Clips**:
+```typescript
+const fetchExportedClips = async () => {
+  if (!params.id) return;
+
+  setIsLoadingExported(true);
+  try {
+    const response = await fetch(`/api/clips/videos/${params.id}/exported`);
+    if (!response.ok) throw new Error('Failed to fetch exported clips');
+
+    const data = await response.json();
+
+    // Match exported clips with original clips
+    const enrichedExportedClips = (data.exportedClips || []).map(
+      (exportedClip: ExportedClip) => {
+        const matchingOriginalClip = video?.clips.find(
+          (clip) =>
+            clip.start === exportedClip.start && clip.end === exportedClip.end
+        );
+        return {
+          ...exportedClip,
+          originalClip: matchingOriginalClip
+        };
+      }
+    );
+
+    setExportedClips(enrichedExportedClips);
+
+    if (enrichedExportedClips && enrichedExportedClips.length > 0) {
+      setSelectedExportedClip(enrichedExportedClips[0]);
+    }
+  } catch (error) {
+    console.error('Error fetching exported clips:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to fetch exported clips',
+      variant: 'destructive'
+    });
+  } finally {
+    setIsLoadingExported(false);
+  }
+};
+```
+
+Enriches exported clips with original clip data (title, summary, etc.) by matching timestamps.
+
+**Signed URL Generation**:
+```typescript
+const getSignedUrl = async (s3Key: string, clipId: string) => {
+  try {
+    // Check cache
+    if (clipVideoUrls[clipId]) {
+      return clipVideoUrls[clipId];
+    }
+
+    const response = await fetch(`/api/clips/videos/${params.id}/download`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ s3Key })
+    });
+
+    if (!response.ok) throw new Error('Failed to get signed URL');
+
+    const data = await response.json();
+
+    // Cache the URL
+    setClipVideoUrls((prev) => ({
+      ...prev,
+      [clipId]: data.url
+    }));
+
+    return data.url;
+  } catch (error) {
+    console.error('Error getting signed URL:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to generate download URL',
+      variant: 'destructive'
+    });
+    return null;
+  }
+};
+```
+
+Caches signed URLs to avoid regenerating on each play.
+
+**Video Player**:
+```tsx
+<div
+  className='relative mx-auto w-full overflow-hidden rounded-lg bg-black'
+  style={{
+    maxWidth:
+      selectedExportedClip.aspectRatio === '9:16'
+        ? '360px'
+        : selectedExportedClip.aspectRatio === '1:1'
+          ? '450px'
+          : '100%',
+    aspectRatio:
+      selectedExportedClip.aspectRatio === '9:16'
+        ? '9/16'
+        : selectedExportedClip.aspectRatio === '1:1'
+          ? '1/1'
+          : '16/9'
+  }}
+>
+  {clipVideoUrls[selectedExportedClip.id] ? (
+    <video
+      key={selectedExportedClip.id}
+      src={clipVideoUrls[selectedExportedClip.id]}
+      controls
+      className='h-full w-full'
+      autoPlay
+    >
+      Your browser does not support the video tag.
+    </video>
+  ) : (
+    <div className='flex h-full w-full flex-col items-center justify-center gap-3'>
+      <Loader2 className='text-muted-foreground h-8 w-8 animate-spin' />
+      <Button
+        variant='secondary'
+        onClick={() =>
+          getSignedUrl(
+            selectedExportedClip.s3Key,
+            selectedExportedClip.id
+          )
+        }
+      >
+        Load Video
+      </Button>
+    </div>
+  )}
+</div>
+```
+
+- Dynamically sizes player based on aspect ratio
+- Uses HTML5 video player with controls
+- Auto-plays on selection
+- Shows loader until URL fetched
+
+**Download Handler**:
+```typescript
+const handleDownloadClip = async (clip: ExportedClip) => {
+  const url = await getSignedUrl(clip.s3Key, clip.id);
+  if (url) {
+    window.open(url, '_blank');
+  }
+};
+```
+
+Opens signed URL in new tab for download.
+
+## Background Processing
+
+When export starts, Inngest `processClips` function:
+
+1. Downloads original video from S3 using `s3Key`
+2. Extracts selected clip segments by timestamp
+3. Applies subtitle customization:
+   - Font: Anton (bold, impact-style)
+   - Color: White with black outline
+   - Position: Middle of screen
+   - Karaoke effect: Green highlighting
+4. Translates subtitles if `targetLanguage` specified
+5. Re-encodes to selected aspect ratio
+6. Uploads processed clips to S3
+7. Creates `ExportedClip` records in database
+8. User can view in Exported tab
+
+Processing time: 30-60 seconds per clip, all clips processed in parallel.

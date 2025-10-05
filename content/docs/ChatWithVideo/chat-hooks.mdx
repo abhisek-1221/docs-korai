@@ -1,0 +1,439 @@
+---
+title: Chat with Video - Hooks
+description: Custom React hooks for video chat functionality
+---
+
+## Overview
+
+The Chat with Video feature uses custom hooks to encapsulate transcript fetching and thread generation logic. These hooks interact with the video chat store and provide clean interfaces for component usage.
+
+## useVideoTranscript Hook
+
+**Location**: `src/features/chat/hooks/use-video-transcript.ts`
+
+### Purpose
+Fetches video transcript from the `/api/transcribe` endpoint and updates the store with the transcript data.
+
+### Dependencies
+- `useToast`: For displaying success/error notifications
+- `useVideoChatStore`: For accessing and updating video state
+- `extractVideoId`: Utility to extract YouTube video ID from URL
+
+### Implementation
+
+```typescript
+export const useVideoTranscript = () => {
+  const { toast } = useToast();
+  const {
+    videoUrl,
+    setVideoId,
+    setTranscript,
+    setHasTranscript,
+    setIsLoadingTranscript
+  } = useVideoChatStore();
+
+  const fetchTranscript = useCallback(async () => {
+    // Validation and fetching logic
+  }, [videoUrl, toast, setVideoId, setTranscript, setHasTranscript, setIsLoadingTranscript]);
+
+  return { fetchTranscript };
+};
+```
+
+### Validation Steps
+
+#### 1. Empty URL Check
+```typescript
+if (!videoUrl.trim()) {
+  toast({
+    title: 'Error',
+    description: 'Please enter a YouTube URL',
+    variant: 'destructive'
+  });
+  return false;
+}
+```
+Shows error toast if URL field is empty.
+
+#### 2. Video ID Extraction
+```typescript
+const extractedVideoId = extractVideoId(videoUrl.trim());
+if (!extractedVideoId) {
+  toast({
+    title: 'Error',
+    description: 'Please enter a valid YouTube URL',
+    variant: 'destructive'
+  });
+  return false;
+}
+```
+Validates YouTube URL format and extracts video ID.
+
+### Fetch Process
+
+#### 1. Start Loading
+```typescript
+setIsLoadingTranscript(true);
+setVideoId(extractedVideoId);
+```
+Sets loading state and stores the extracted video ID.
+
+#### 2. API Call
+```typescript
+const response = await fetch('/api/transcribe', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ videoUrl })
+});
+
+const data = await response.json();
+```
+Sends POST request to transcribe endpoint with video URL.
+
+#### 3. Response Validation
+```typescript
+if (!response.ok) {
+  throw new Error(data.error || 'Failed to fetch transcript');
+}
+
+if (!data?.transcript?.fullTranscript) {
+  throw new Error('No transcript available for this video');
+}
+```
+Checks for API errors and validates transcript data structure.
+
+#### 4. Success Handling
+```typescript
+setTranscript(data.transcript.fullTranscript);
+setHasTranscript(true);
+
+toast({
+  title: 'Success',
+  description: 'Video loaded! You can now start chatting.',
+  variant: 'default'
+});
+
+return true;
+```
+Updates store with transcript, shows success toast, returns true.
+
+#### 5. Error Handling
+```typescript
+catch (error: any) {
+  console.error('Error fetching transcript:', error);
+  toast({
+    title: 'Error',
+    description: error.message || 'Failed to fetch transcript',
+    variant: 'destructive'
+  });
+  return false;
+}
+```
+Logs error, shows error toast, returns false.
+
+#### 6. Cleanup
+```typescript
+finally {
+  setIsLoadingTranscript(false);
+}
+```
+Always resets loading state, regardless of success or failure.
+
+### Usage Example
+
+```typescript
+import { useVideoTranscript } from '../hooks/use-video-transcript';
+
+function VideoInput() {
+  const { fetchTranscript } = useVideoTranscript();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await fetchTranscript();
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* Input field */}
+    </form>
+  );
+}
+```
+
+## useGenerateVideoThreads Hook
+
+**Location**: `src/features/chat/hooks/use-generate-video-threads.ts`
+
+### Purpose
+Generates Twitter/X threads from video transcript using a separate `useChat` instance and parses the AI response into structured thread posts.
+
+### Dependencies
+- `useChat`: Vercel AI SDK hook for streaming
+- `useToast`: For displaying notifications
+- `useVideoChatStore`: For accessing transcript and updating threads
+- `useEffect`: For monitoring thread generation status
+
+### Implementation
+
+```typescript
+export const useGenerateVideoThreads = () => {
+  const { toast } = useToast();
+  const {
+    transcript,
+    videoId,
+    hasTranscript,
+    setThreads,
+    setGeneratingThreads,
+    setThreadsModalOpen
+  } = useVideoChatStore();
+
+  // Separate useChat instance for thread generation
+  const {
+    messages: threadMessages,
+    sendMessage,
+    status: threadStatus
+  } = useChat({
+    id: 'thread-generation' // Unique ID
+  });
+
+  // useEffect for parsing
+  // generateThreads function
+
+  return { generateThreads, isGenerating: threadStatus === 'streaming' };
+};
+```
+
+### Separate Chat Instance
+```typescript
+const {
+  messages: threadMessages,
+  sendMessage,
+  status: threadStatus
+} = useChat({
+  id: 'thread-generation'
+});
+```
+Uses a unique ID `'thread-generation'` to separate from main chat messages. This prevents thread generation from interfering with the main chat conversation.
+
+### Thread Parsing Effect
+
+#### Trigger Condition
+```typescript
+useEffect(() => {
+  if (threadStatus === 'ready' && threadMessages.length > 0) {
+    // Parse threads
+  }
+}, [threadStatus, threadMessages, videoId, setThreads, ...]);
+```
+Runs when thread generation is complete (`status === 'ready'`).
+
+#### Extract Text from Message
+```typescript
+const lastMessage = threadMessages[threadMessages.length - 1];
+if (lastMessage.role === 'assistant') {
+  let threadText = '';
+  lastMessage.parts.forEach((part) => {
+    if (part.type === 'text') {
+      threadText += part.text;
+    }
+  });
+}
+```
+Extracts text content from the last assistant message parts.
+
+#### Parse Numbered Posts
+```typescript
+const threadPosts: ThreadData[] = [];
+const lines = threadText.split('\n').filter((line) => line.trim());
+
+for (let i = 1; i <= 20; i++) {
+  const threadLine = lines.find((line) => {
+    const trimmed = line.trim();
+    return trimmed.startsWith(`${i}:`) || trimmed.startsWith(`${i}.`);
+  });
+
+  if (threadLine) {
+    let content = threadLine.replace(/^\d+[:.]\s*/, '').trim();
+    if (content.length > 0) {
+      threadPosts.push({
+        post: i,
+        content: content,
+        total: 0
+      });
+    }
+  } else {
+    break; // No more posts found
+  }
+}
+```
+Dynamic parsing that finds numbered posts (1:, 2:, etc.) and extracts content. Stops when no more numbered posts are found.
+
+#### Update Total Count
+```typescript
+const totalPosts = threadPosts.length;
+threadPosts.forEach((post) => {
+  post.total = totalPosts;
+});
+```
+Sets the `total` property for all posts after counting them.
+
+#### Add Thumbnail
+```typescript
+if (threadPosts.length > 0 && videoId) {
+  threadPosts[0].thumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+}
+```
+Adds YouTube thumbnail to the first post using the video ID.
+
+#### Success Handling
+```typescript
+if (threadPosts.length > 0) {
+  setThreads(threadPosts);
+  toast({
+    title: 'Success',
+    description: `Generated ${threadPosts.length} thread posts!`
+  });
+} else {
+  toast({
+    title: 'Error',
+    description: 'No thread posts were generated. Please try again.',
+    variant: 'destructive'
+  });
+  setThreadsModalOpen(false);
+}
+setGeneratingThreads(false);
+```
+Updates store and shows appropriate toast based on success or failure.
+
+### Generate Threads Function
+
+#### Validation
+```typescript
+const generateThreads = () => {
+  if (!hasTranscript || !transcript) {
+    toast({
+      title: 'Error',
+      description: 'No transcript available. Please load a video first.',
+      variant: 'destructive'
+    });
+    return;
+  }
+  // ...
+};
+```
+Ensures transcript is loaded before generating threads.
+
+#### Initialize State
+```typescript
+setGeneratingThreads(true);
+setThreads([]);
+setThreadsModalOpen(true);
+```
+Sets loading state, clears previous threads, opens modal.
+
+#### Thread Generation Prompt
+```typescript
+const threadsPrompt = `Create a compelling X (Twitter) thread from this video content. Write a thread that tells the full story with engaging hooks and insights.
+
+REQUIREMENTS:
+- Start with a strong hook (e.g., "Here's the full story..." or "🧵 This will change how you think about...")
+- Each post should be 200-250 characters (engaging but not too short)
+- Generate 6-12 posts depending on content depth
+- End with a strong conclusion and call-to-action
+- Use emojis strategically
+- Do not use hashtags in the thread
+
+FORMAT: Write each post on a new line starting with "1:", "2:", etc.
+
+Video content: ${transcript}
+
+Write the complete thread now:`;
+```
+Detailed prompt that instructs AI to generate structured thread posts.
+
+#### Send Message
+```typescript
+sendMessage({
+  text: threadsPrompt
+});
+```
+Sends prompt to AI using the separate chat instance.
+
+### Usage Example
+
+```typescript
+import { useGenerateVideoThreads } from '../hooks/use-generate-video-threads';
+
+function ChatPage() {
+  const { generateThreads, isGenerating } = useGenerateVideoThreads();
+
+  return (
+    <button onClick={generateThreads} disabled={isGenerating}>
+      {isGenerating ? 'Generating...' : 'Generate Thread'}
+    </button>
+  );
+}
+```
+
+## Hook Interactions
+
+### Flow Diagram
+
+```
+1. useVideoTranscript
+   ↓
+   fetchTranscript() → API call → setTranscript()
+   ↓
+   hasTranscript = true
+   ↓
+2. useGenerateVideoThreads
+   ↓
+   generateThreads() → uses transcript → sends to AI
+   ↓
+   useEffect monitors status
+   ↓
+   Parses response → setThreads()
+```
+
+### Store Updates
+
+Both hooks update different parts of the store:
+
+**useVideoTranscript updates:**
+- `videoUrl`
+- `videoId`
+- `transcript`
+- `hasTranscript`
+- `isLoadingTranscript`
+
+**useGenerateVideoThreads updates:**
+- `threads`
+- `generatingThreads`
+- `threadsModalOpen`
+
+## Error Handling Patterns
+
+### Validation Errors
+Both hooks validate input before processing:
+- Empty or invalid URLs
+- Missing transcripts
+- Invalid video IDs
+
+### API Errors
+Proper error handling for network failures:
+- Try-catch blocks
+- Error messages in toast notifications
+- Boolean return values indicating success/failure
+
+### Loading States
+Both hooks manage loading states:
+- `isLoadingTranscript` for transcript fetching
+- `generatingThreads` for thread generation
+- UI elements disabled during loading
+
+## Related Documentation
+
+- [Chat Overview](/docs/ChatWithVideo/chat-overview)
+- [Chat Store](/docs/ChatWithVideo/chat-store)
+- [Chat API Route](/docs/ChatWithVideo/chat-api-route)
+- [Chat Component](/docs/ChatWithVideo/chat-component)

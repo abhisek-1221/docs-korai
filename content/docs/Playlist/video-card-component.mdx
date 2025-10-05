@@ -1,0 +1,701 @@
+---
+title: VideoCard Component
+description: Documentation for the VideoCard component used in Playlist Analyzer
+---
+
+## Overview
+
+The `VideoCard` component displays individual video information in a visually appealing card format. It includes thumbnail, title, statistics, and interactive elements with smooth animations.
+
+## Location
+
+```
+/src/components/VideoCard.tsx
+```
+
+## Complete Implementation
+
+```typescript
+'use client';
+
+import { motion } from 'framer-motion';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import type { VideoItem } from '@/lib/youtube';
+import { ThumbsUp, Eye, Calendar, ExternalLink } from 'lucide-react';
+import { Button } from './ui/button';
+import { formatDuration, formatNumber } from '@/lib/ythelper';
+
+interface VideoCardProps {
+  video: VideoItem;
+  searchQuery: string;
+}
+
+export function VideoCard({ video, searchQuery }: VideoCardProps) {
+  const highlightText = (text: string) => {
+    if (!searchQuery) return text;
+
+    const parts = text.split(new RegExp(`(${searchQuery})`, 'gi'));
+    return parts.map((part, index) =>
+      part.toLowerCase() === searchQuery.toLowerCase() ? (
+        <span key={index} className='bg-yellow-800'>
+          {part}
+        </span>
+      ) : (
+        part
+      )
+    );
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.8 }}
+      className='h-full'
+    >
+      <Card className='h-full overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-lg'>
+        <div className='relative'>
+          <img
+            src={video.thumbnails.medium.url || '/placeholder.svg'}
+            alt={video.title}
+            className='h-48 w-full object-cover'
+          />
+          <div className='bg-opacity-70 absolute right-2 bottom-2 rounded bg-black px-2 py-1 text-xs font-medium text-white'>
+            {formatDuration(video.duration)}
+          </div>
+        </div>
+        <CardContent className='p-4'>
+          <h3 className='mb-2 line-clamp-2 h-14 text-lg font-semibold'>
+            {highlightText(video.title)}
+          </h3>
+          <div className='mt-2 flex flex-wrap gap-2'>
+            <Badge variant='secondary' className='flex items-center'>
+              <Eye className='mr-1 h-3 w-3 text-blue-500' />
+              <span>{formatNumber(video.viewCount)}</span>
+            </Badge>
+            <Badge variant='secondary' className='flex items-center'>
+              <ThumbsUp className='mr-1 h-3 w-3 text-green-500' />
+              <span>{formatNumber(video.likeCount)}</span>
+            </Badge>
+            <Badge variant='secondary' className='flex items-center'>
+              <Calendar className='mr-1 h-3 w-3 text-red-500' />
+              <span>{new Date(video.publishedAt).toLocaleDateString()}</span>
+            </Badge>
+            <Button
+              variant='secondary'
+              className='flex items-center space-x-1 hover:bg-blue-950'
+              onClick={() =>
+                window.open(
+                  `https://youtube.com/watch?v=${video.id}`,
+                  '_blank',
+                  'noopener,noreferrer'
+                )
+              }
+            >
+              <ExternalLink className='h-3 w-3' />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+```
+
+## Component Structure
+
+```
+motion.div (Animation wrapper)
+└── Card (Shadcn/ui)
+    ├── Thumbnail Section
+    │   ├── Image (Video thumbnail)
+    │   └── Duration Badge (Overlay)
+    └── CardContent
+        ├── Title (With search highlighting)
+        └── Statistics Badges
+            ├── Views Badge
+            ├── Likes Badge
+            ├── Publish Date Badge
+            └── External Link Button
+```
+
+## Props
+
+### VideoCardProps
+
+```typescript
+interface VideoCardProps {
+  video: VideoItem;        // Video data object
+  searchQuery: string;     // Current search query for highlighting
+}
+```
+
+**Properties:**
+
+| Prop | Type | Required | Description |
+|------|------|----------|-------------|
+| `video` | `VideoItem` | Yes | Complete video metadata |
+| `searchQuery` | `string` | Yes | Search term to highlight in title |
+
+### VideoItem Type
+
+```typescript
+interface VideoItem {
+  id: string;              // YouTube video ID
+  title: string;           // Video title
+  description: string;     // Video description
+  thumbnails: {
+    default: { url: string; width: number; height: number }
+    medium: { url: string; width: number; height: number }
+    high: { url: string; width: number; height: number }
+  };
+  channelTitle: string;    // Channel name
+  publishedAt: string;     // ISO 8601 date string
+  duration: number;        // Duration in seconds
+  viewCount: number;       // Total views
+  likeCount: number;       // Total likes
+}
+```
+
+## Component Features
+
+### 1. Thumbnail Section
+
+```typescript
+<div className='relative'>
+  <img
+    src={video.thumbnails.medium.url || '/placeholder.svg'}
+    alt={video.title}
+    className='h-48 w-full object-cover'
+  />
+  <div className='bg-opacity-70 absolute right-2 bottom-2 rounded bg-black px-2 py-1 text-xs font-medium text-white'>
+    {formatDuration(video.duration)}
+  </div>
+</div>
+```
+
+**Features:**
+- **Image**: 320x180 medium quality thumbnail
+- **Fallback**: `/placeholder.svg` if thumbnail missing
+- **Aspect Ratio**: Fixed height (h-48), full width
+- **Duration Badge**: Overlaid on bottom-right corner
+- **Positioning**: Absolute positioning for overlay
+
+**Duration Format:**
+```typescript
+formatDuration(213)  // Returns: "3m 33s"
+formatDuration(3665) // Returns: "1h 1m 5s"
+```
+
+---
+
+### 2. Title with Search Highlighting
+
+```typescript
+<h3 className='mb-2 line-clamp-2 h-14 text-lg font-semibold'>
+  {highlightText(video.title)}
+</h3>
+```
+
+**Features:**
+- **Line Clamping**: Shows maximum 2 lines with ellipsis
+- **Fixed Height**: `h-14` ensures consistent card heights
+- **Search Highlighting**: Matched text highlighted in yellow
+
+#### highlightText Function
+
+```typescript
+const highlightText = (text: string) => {
+  if (!searchQuery) return text;
+
+  const parts = text.split(new RegExp(`(${searchQuery})`, 'gi'));
+  return parts.map((part, index) =>
+    part.toLowerCase() === searchQuery.toLowerCase() ? (
+      <span key={index} className='bg-yellow-800'>
+        {part}
+      </span>
+    ) : (
+      part
+    )
+  );
+};
+```
+
+**How It Works:**
+
+1. Returns original text if no search query
+2. Splits text by search query (case-insensitive)
+3. Wraps matching parts in highlighted span
+4. Returns array of text and highlighted spans
+
+**Example:**
+```typescript
+searchQuery = "react"
+title = "Learn React and React Native"
+
+// Output:
+// "Learn " + <span class="bg-yellow-800">React</span> + " and " + <span class="bg-yellow-800">React</span> + " Native"
+```
+
+---
+
+### 3. Statistics Badges
+
+#### Views Badge
+
+```typescript
+<Badge variant='secondary' className='flex items-center'>
+  <Eye className='mr-1 h-3 w-3 text-blue-500' />
+  <span>{formatNumber(video.viewCount)}</span>
+</Badge>
+```
+
+**Icon:** Eye (blue)  
+**Format:** Compact notation (1.2M, 500K, etc.)
+
+#### Likes Badge
+
+```typescript
+<Badge variant='secondary' className='flex items-center'>
+  <ThumbsUp className='mr-1 h-3 w-3 text-green-500' />
+  <span>{formatNumber(video.likeCount)}</span>
+</Badge>
+```
+
+**Icon:** ThumbsUp (green)  
+**Format:** Compact notation
+
+#### Publish Date Badge
+
+```typescript
+<Badge variant='secondary' className='flex items-center'>
+  <Calendar className='mr-1 h-3 w-3 text-red-500' />
+  <span>{new Date(video.publishedAt).toLocaleDateString()}</span>
+</Badge>
+```
+
+**Icon:** Calendar (red)  
+**Format:** Locale-specific date (e.g., "1/15/2024")
+
+**Date Formatting:**
+```typescript
+new Date('2024-01-15T10:00:00Z').toLocaleDateString()
+// US: "1/15/2024"
+// UK: "15/01/2024"
+// ISO: "2024-01-15"
+```
+
+---
+
+### 4. External Link Button
+
+```typescript
+<Button
+  variant='secondary'
+  className='flex items-center space-x-1 hover:bg-blue-950'
+  onClick={() =>
+    window.open(
+      `https://youtube.com/watch?v=${video.id}`,
+      '_blank',
+      'noopener,noreferrer'
+    )
+  }
+>
+  <ExternalLink className='h-3 w-3' />
+</Button>
+```
+
+**Features:**
+- Opens video in new tab
+- Security: `noopener,noreferrer` flags
+- Hover effect: Blue background on hover
+- Icon-only button for compact design
+
+**Generated URL:**
+```typescript
+`https://youtube.com/watch?v=${video.id}`
+// Example: https://youtube.com/watch?v=dQw4w9WgXcQ
+```
+
+---
+
+## Animations
+
+### Entry Animation (Framer Motion)
+
+```typescript
+<motion.div
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.8 }}
+  className='h-full'
+>
+```
+
+**Effect:**
+- Starts invisible and 20px below final position
+- Fades in and slides up over 0.8 seconds
+- Creates staggered effect when multiple cards load
+
+### Hover Animation (CSS)
+
+```typescript
+className='transition-all duration-300 hover:-translate-y-1 hover:shadow-lg'
+```
+
+**Effect:**
+- Card lifts up 4px on hover
+- Shadow increases for depth effect
+- Smooth 300ms transition
+
+**Visual Feedback:**
+```
+Normal State:    [Card]
+                    ↓
+Hover State:     [Card]  ← Lifted with shadow
+```
+
+---
+
+## Responsive Behavior
+
+### Image Sizing
+- **Height**: Fixed at `h-48` (192px)
+- **Width**: Full card width (`w-full`)
+- **Object Fit**: `object-cover` (crops to fill)
+
+### Card Height
+- **Height**: Full height (`h-full`)
+- **Min Height**: Determined by content
+- **Consistency**: Fixed title height ensures uniform cards
+
+### Badge Wrapping
+```typescript
+className='mt-2 flex flex-wrap gap-2'
+```
+
+**Behavior:**
+- Badges wrap to next line if needed
+- 8px gap between badges
+- Responsive to card width
+
+---
+
+## Usage Examples
+
+### Basic Usage
+
+```typescript
+import { VideoCard } from '@/components/VideoCard';
+import type { VideoItem } from '@/lib/youtube';
+
+function VideoList({ videos }: { videos: VideoItem[] }) {
+  return (
+    <div className='grid grid-cols-3 gap-4'>
+      {videos.map((video) => (
+        <VideoCard 
+          key={video.id} 
+          video={video} 
+          searchQuery='' 
+        />
+      ))}
+    </div>
+  );
+}
+```
+
+### With Search Query
+
+```typescript
+import { VideoCard } from '@/components/VideoCard';
+
+function SearchResults({ videos, query }: { videos: VideoItem[], query: string }) {
+  return (
+    <div className='grid grid-cols-3 gap-4'>
+      {videos.map((video) => (
+        <VideoCard 
+          key={video.id} 
+          video={video} 
+          searchQuery={query}  // Highlights matching text
+        />
+      ))}
+    </div>
+  );
+}
+```
+
+### In Playlist Analyzer
+
+```typescript
+<div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+  {sortedVideos.map((video) => (
+    <VideoCard
+      key={video.id}
+      video={video}
+      searchQuery={searchQuery}
+    />
+  ))}
+</div>
+```
+
+---
+
+## Styling Details
+
+### Card Styling
+
+```typescript
+className='h-full overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-lg'
+```
+
+**Classes:**
+- `h-full`: Full height of container
+- `overflow-hidden`: Clips content at borders (rounded corners)
+- `transition-all`: Smooth transitions for all properties
+- `duration-300`: 300ms transition duration
+- `hover:-translate-y-1`: Lift on hover
+- `hover:shadow-lg`: Large shadow on hover
+
+### Content Padding
+
+```typescript
+<CardContent className='p-4'>
+```
+
+**Padding:** 16px on all sides
+
+### Title Styling
+
+```typescript
+className='mb-2 line-clamp-2 h-14 text-lg font-semibold'
+```
+
+**Classes:**
+- `mb-2`: 8px bottom margin
+- `line-clamp-2`: Maximum 2 lines with ellipsis
+- `h-14`: Fixed 56px height
+- `text-lg`: 18px font size
+- `font-semibold`: 600 font weight
+
+### Badge Container
+
+```typescript
+className='mt-2 flex flex-wrap gap-2'
+```
+
+**Classes:**
+- `mt-2`: 8px top margin
+- `flex`: Flexbox layout
+- `flex-wrap`: Wrap to multiple lines if needed
+- `gap-2`: 8px gap between items
+
+---
+
+## Accessibility Features
+
+### Image Alt Text
+
+```typescript
+<img
+  src={video.thumbnails.medium.url}
+  alt={video.title}  // Descriptive alt text
+/>
+```
+
+### Button Accessibility
+
+```typescript
+<Button
+  onClick={() => window.open(...)}
+  // Implicitly has role="button"
+  // Keyboard accessible (Enter/Space)
+>
+  <ExternalLink className='h-3 w-3' />
+</Button>
+```
+
+### Semantic HTML
+
+- `<h3>` for video title (proper heading hierarchy)
+- `<span>` for statistics text
+- `<button>` for clickable elements
+
+### Screen Reader Friendly
+
+- Alt text on images
+- Readable date format
+- Icon + text combinations in badges
+
+---
+
+## Performance Considerations
+
+### Image Loading
+
+```typescript
+<img
+  src={video.thumbnails.medium.url || '/placeholder.svg'}
+  // Could add: loading="lazy" for lazy loading
+/>
+```
+
+**Optimization Opportunity:**
+```typescript
+<img
+  src={video.thumbnails.medium.url}
+  alt={video.title}
+  loading="lazy"  // Lazy load images
+  className='h-48 w-full object-cover'
+/>
+```
+
+### Animation Performance
+
+- Framer Motion uses GPU acceleration
+- CSS transforms (`translate`, `scale`) are hardware-accelerated
+- No expensive layout recalculations
+
+### Memoization Opportunity
+
+For large lists, consider memoizing:
+
+```typescript
+import { memo } from 'react';
+
+export const VideoCard = memo(function VideoCard({ video, searchQuery }: VideoCardProps) {
+  // ... component code
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.video.id === nextProps.video.id &&
+    prevProps.searchQuery === nextProps.searchQuery
+  );
+});
+```
+
+---
+
+## Customization Examples
+
+### Change Card Colors
+
+```typescript
+// Modify icon colors
+<Eye className='mr-1 h-3 w-3 text-blue-500' />    // Change to text-purple-500
+<ThumbsUp className='mr-1 h-3 w-3 text-green-500' /> // Change to text-pink-500
+<Calendar className='mr-1 h-3 w-3 text-red-500' />   // Change to text-orange-500
+```
+
+### Adjust Card Height
+
+```typescript
+<img
+  className='h-48 w-full object-cover'  // Change h-48 to h-56 or h-64
+/>
+```
+
+### Change Hover Effect
+
+```typescript
+// Stronger lift effect
+className='hover:-translate-y-2 hover:shadow-2xl'
+
+// Scale effect instead of lift
+className='hover:scale-105 hover:shadow-lg'
+```
+
+### Custom Duration Format
+
+```typescript
+// Show hours:minutes:seconds format
+<div className='...'>
+  {formatDurationForDisplay(video.duration)} // "15:23" instead of "15m 23s"
+</div>
+```
+
+---
+
+## Testing
+
+### Unit Test Example
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import { VideoCard } from './VideoCard';
+
+const mockVideo: VideoItem = {
+  id: 'test123',
+  title: 'Test Video Title',
+  description: 'Test description',
+  thumbnails: {
+    medium: { url: 'test.jpg', width: 320, height: 180 }
+  },
+  channelTitle: 'Test Channel',
+  publishedAt: '2024-01-15T10:00:00Z',
+  duration: 300,
+  viewCount: 1000000,
+  likeCount: 50000
+};
+
+describe('VideoCard', () => {
+  test('renders video title', () => {
+    render(<VideoCard video={mockVideo} searchQuery='' />);
+    expect(screen.getByText('Test Video Title')).toBeInTheDocument();
+  });
+
+  test('highlights search query in title', () => {
+    render(<VideoCard video={mockVideo} searchQuery='Test' />);
+    const highlighted = screen.getByText('Test');
+    expect(highlighted).toHaveClass('bg-yellow-800');
+  });
+
+  test('formats view count correctly', () => {
+    render(<VideoCard video={mockVideo} searchQuery='' />);
+    expect(screen.getByText('1M')).toBeInTheDocument();
+  });
+
+  test('opens video in new tab on button click', () => {
+    const windowOpen = jest.spyOn(window, 'open');
+    const { container } = render(<VideoCard video={mockVideo} searchQuery='' />);
+    
+    const button = container.querySelector('button');
+    button?.click();
+    
+    expect(windowOpen).toHaveBeenCalledWith(
+      'https://youtube.com/watch?v=test123',
+      '_blank',
+      'noopener,noreferrer'
+    );
+  });
+});
+```
+
+---
+
+## Dependencies
+
+### UI Components
+- `Card`, `CardContent` (Shadcn/ui)
+- `Badge` (Shadcn/ui)
+- `Button` (Shadcn/ui)
+
+### Icons
+- `ThumbsUp`, `Eye`, `Calendar`, `ExternalLink` (lucide-react)
+
+### Utilities
+- `formatDuration` - Formats seconds to readable time
+- `formatNumber` - Formats numbers to compact notation
+
+### Animation
+- `motion` from `framer-motion`
+
+### Types
+- `VideoItem` from `@/lib/youtube`
+
+---
+
+## Related Documentation
+
+- [Playlist Analyzer Component](/docs/playlist-analyzer-component)
+- [YouTube Type Definitions](/docs/youtube-types)
+- [YouTube Helper Functions](/docs/youtube-helpers)

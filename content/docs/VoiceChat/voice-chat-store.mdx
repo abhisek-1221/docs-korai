@@ -1,0 +1,357 @@
+---
+title: Voice Chat Store
+description: Zustand state management for Voice Chat feature
+---
+
+# Voice Chat Store
+
+The Voice Chat store manages all state for the voice conversation feature using Zustand. It handles video context, messages, audio states, and language selection.
+
+## Store Structure
+
+```typescript
+import { create } from 'zustand';
+
+export interface Message {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  audioUrl?: string;
+  language?: string;
+}
+
+interface VoiceChatState {
+  // Video state
+  videoUrl: string;
+  transcript: string;
+  hasTranscript: boolean;
+
+  // Chat state
+  messages: Message[];
+  selectedLanguage: string;
+
+  // Audio state
+  isRecording: boolean;
+  isProcessingAudio: boolean;
+  isPlayingAudio: boolean;
+  audioLevel: number;
+
+  // Loading states
+  isLoading: boolean;
+
+  // Actions
+  setVideoUrl: (url: string) => void;
+  setTranscript: (transcript: string) => void;
+  setHasTranscript: (has: boolean) => void;
+  setMessages: (messages: Message[] | ((prev: Message[]) => Message[])) => void;
+  addMessage: (message: Message) => void;
+  setSelectedLanguage: (language: string) => void;
+  setIsRecording: (recording: boolean) => void;
+  setIsProcessingAudio: (processing: boolean) => void;
+  setIsPlayingAudio: (playing: boolean) => void;
+  setAudioLevel: (level: number) => void;
+  setIsLoading: (loading: boolean) => void;
+  resetChat: () => void;
+}
+```
+
+## State Properties
+
+### Video Context State
+
+**`videoUrl: string`**
+- Stores the YouTube video URL entered by user
+- Used to fetch transcript
+- Reset when loading new video
+
+**`transcript: string`**
+- Full transcript text of the YouTube video
+- Provides context for AI responses
+- Retrieved from `/api/transcribe` endpoint
+
+**`hasTranscript: boolean`**
+- Indicates if transcript is loaded and ready
+- Gates voice recording (can't record without transcript)
+- Determines which UI view to show (setup vs chat)
+
+### Conversation State
+
+**`messages: Message[]`**
+- Array of all conversation messages
+- Includes user questions, AI responses, and system messages
+- Each message has:
+  - `id`: Unique timestamp-based identifier
+  - `role`: Message type (user/assistant/system)
+  - `content`: Text content
+  - `audioUrl`: Optional audio URL for assistant responses
+  - `language`: Language code used for this message
+
+**`selectedLanguage: string`**
+- Currently selected language code (e.g., 'en-US', 'hi-IN')
+- Determines STT language detection
+- Controls TTS voice output language
+- Affects AI response language
+- Default: 'en-US'
+
+### Audio Recording State
+
+**`isRecording: boolean`**
+- Indicates if microphone is actively recording
+- Controls recording button state
+- Shows recording indicator animation
+- Prevents starting new recording while active
+
+**`isProcessingAudio: boolean`**
+- Indicates if audio is being processed through pipeline
+- Shows while converting, transcribing, generating response, and synthesizing speech
+- Prevents new recording during processing
+- Shows processing loader in UI
+
+**`isPlayingAudio: boolean`**
+- Indicates if audio response is currently playing
+- Controls audio playback icon state
+- Updated by audio element events
+
+**`audioLevel: number`**
+- Real-time audio input level (0-255)
+- Calculated from microphone waveform data
+- Drives visual feedback animation
+- Shows user that audio is being captured
+
+### General State
+
+**`isLoading: boolean`**
+- Indicates if transcript is being fetched
+- Shows loading state during video setup
+- Disables form inputs during load
+
+## State Actions
+
+### Video Actions
+
+**`setVideoUrl(url: string)`**
+```typescript
+setVideoUrl: (url) => set({ videoUrl: url })
+```
+Updates the YouTube video URL.
+
+**`setTranscript(transcript: string)`**
+```typescript
+setTranscript: (transcript) => set({ transcript })
+```
+Stores the fetched video transcript.
+
+**`setHasTranscript(has: boolean)`**
+```typescript
+setHasTranscript: (has) => set({ hasTranscript: has })
+```
+Sets transcript availability flag.
+
+### Message Actions
+
+**`setMessages(messages)`**
+```typescript
+setMessages: (messages) =>
+  set((state) => ({
+    messages:
+      typeof messages === 'function' ? messages(state.messages) : messages
+  }))
+```
+Replaces entire message array. Supports both direct value and updater function.
+
+**Usage Example**:
+```typescript
+// Direct replacement
+setMessages([]);
+
+// Functional update
+setMessages(prev => [...prev, newMessage]);
+```
+
+**`addMessage(message: Message)`**
+```typescript
+addMessage: (message) =>
+  set((state) => ({ messages: [...state.messages, message] }))
+```
+Appends a new message to the conversation.
+
+**Usage Example**:
+```typescript
+const userMessage: Message = {
+  id: Date.now().toString(),
+  role: 'user',
+  content: 'What is this video about?',
+  language: 'en-US'
+};
+addMessage(userMessage);
+```
+
+### Language Action
+
+**`setSelectedLanguage(language: string)`**
+```typescript
+setSelectedLanguage: (language) => set({ selectedLanguage: language })
+```
+Updates the selected language for voice interactions.
+
+### Audio State Actions
+
+**`setIsRecording(recording: boolean)`**
+```typescript
+setIsRecording: (recording) => set({ isRecording: recording })
+```
+Toggles recording state.
+
+**`setIsProcessingAudio(processing: boolean)`**
+```typescript
+setIsProcessingAudio: (processing) => set({ isProcessingAudio: processing })
+```
+Toggles audio processing state.
+
+**`setIsPlayingAudio(playing: boolean)`**
+```typescript
+setIsPlayingAudio: (playing) => set({ isPlayingAudio: playing })
+```
+Toggles audio playback state.
+
+**`setAudioLevel(level: number)`**
+```typescript
+setAudioLevel: (level) => set({ audioLevel: level })
+```
+Updates real-time audio input level.
+
+### General Actions
+
+**`setIsLoading(loading: boolean)`**
+```typescript
+setIsLoading: (loading) => set({ isLoading: loading })
+```
+Toggles loading state.
+
+**`resetChat()`**
+```typescript
+resetChat: () => set(initialState)
+```
+Resets entire store to initial state. Used when loading a new video.
+
+## Initial State
+
+```typescript
+const initialState = {
+  videoUrl: '',
+  transcript: '',
+  hasTranscript: false,
+  messages: [],
+  selectedLanguage: 'en-US',
+  isRecording: false,
+  isProcessingAudio: false,
+  isPlayingAudio: false,
+  audioLevel: 0,
+  isLoading: false
+};
+```
+
+## Usage in Components
+
+### Basic Usage
+```typescript
+import { useVoiceChatStore } from '../store/voice-chat-store';
+
+function VoiceChatComponent() {
+  const {
+    messages,
+    isRecording,
+    hasTranscript,
+    addMessage,
+    setIsRecording
+  } = useVoiceChatStore();
+
+  // Use state and actions
+}
+```
+
+### Selective Subscription
+```typescript
+// Only subscribe to messages
+const messages = useVoiceChatStore((state) => state.messages);
+
+// Subscribe to multiple specific fields
+const { isRecording, audioLevel } = useVoiceChatStore((state) => ({
+  isRecording: state.isRecording,
+  audioLevel: state.audioLevel
+}));
+```
+
+## State Flow Examples
+
+### Fetching Transcript Flow
+```typescript
+// 1. User enters URL
+setVideoUrl('https://youtube.com/watch?v=abc');
+
+// 2. Start loading
+setIsLoading(true);
+
+// 3. Fetch transcript
+const transcript = await fetchTranscript(videoUrl);
+
+// 4. Update state
+setTranscript(transcript);
+setHasTranscript(true);
+
+// 5. Add system message
+setMessages([{
+  id: Date.now().toString(),
+  role: 'system',
+  content: 'Voice agent is ready!'
+}]);
+
+// 6. Stop loading
+setIsLoading(false);
+```
+
+### Voice Interaction Flow
+```typescript
+// 1. Start recording
+setIsRecording(true);
+setAudioLevel(0);
+
+// 2. While recording, update audio level
+setAudioLevel(currentLevel); // Called repeatedly
+
+// 3. Stop recording and process
+setIsRecording(false);
+setIsProcessingAudio(true);
+
+// 4. Add user message after STT
+const userMessage = {
+  id: Date.now().toString(),
+  role: 'user',
+  content: transcribedText,
+  language: selectedLanguage
+};
+addMessage(userMessage);
+
+// 5. Add assistant response after TTS
+const assistantMessage = {
+  id: (Date.now() + 1).toString(),
+  role: 'assistant',
+  content: aiResponseText,
+  audioUrl: audioObjectUrl,
+  language: selectedLanguage
+};
+addMessage(assistantMessage);
+
+// 6. Done processing
+setIsProcessingAudio(false);
+```
+
+## Type Export
+
+The store exports the `Message` interface for use in other parts of the application:
+
+```typescript
+export { type Message } from '../store/voice-chat-store';
+```
+
+This allows consistent message typing across hooks and components.

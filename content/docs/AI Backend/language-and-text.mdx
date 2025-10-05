@@ -1,0 +1,206 @@
+---
+title: "Language and Text Processing"
+---
+
+This document provides a detailed explanation of functions related to language and text processing in the AI backend. These functions handle tasks such as cleaning language codes, chunking text, and translating text using different services.
+
+### clean_language_code_for_whisperx
+
+The `clean_language_code_for_whisperx` function cleans a language code to make it compatible with the WhisperX library, which only accepts base language codes.
+
+```python
+def clean_language_code_for_whisperx(language_code: str) -> str:
+    """
+    Clean language code for WhisperX compatibility.
+    WhisperX only accepts base language codes without country specifiers.
+    Example: 'ta-IN' -> 'ta', 'hi-IN' -> 'hi', 'en-US' -> 'en'
+    """
+    if not language_code:
+        return language_code
+    
+    # Split on '-' and take the first part (base language)
+    base_language = language_code.split('-')[0]
+    
+    # WhisperX accepted language codes (from the error message)
+    accepted_codes = {
+        'af', 'am', 'ar', 'as', 'az', 'ba', 'be', 'bg', 'bn', 'bo', 'br', 'bs', 
+        'ca', 'cs', 'cy', 'da', 'de', 'el', 'en', 'es', 'et', 'eu', 'fa', 'fi', 
+        'fo', 'fr', 'gl', 'gu', 'ha', 'haw', 'he', 'hi', 'hr', 'ht', 'hu', 'hy', 
+        'id', 'is', 'it', 'ja', 'jw', 'ka', 'kk', 'km', 'kn', 'ko', 'la', 'lb', 
+        'ln', 'lo', 'lt', 'lv', 'mg', 'mi', 'mk', 'ml', 'mn', 'mr', 'ms', 'mt', 
+        'my', 'ne', 'nl', 'nn', 'no', 'oc', 'pa', 'pl', 'ps', 'pt', 'ro', 'ru', 
+        'sa', 'sd', 'si', 'sk', 'sl', 'sn', 'so', 'sq', 'sr', 'su', 'sv', 'sw', 
+        'ta', 'te', 'tg', 'th', 'tk', 'tl', 'tr', 'tt', 'uk', 'ur', 'uz', 'vi', 
+        'yi', 'yo', 'zh', 'yue'
+    }
+    
+    # Return base language if it's in accepted codes, otherwise return original
+    if base_language in accepted_codes:
+        return base_language
+    else:
+        print(f"Warning: Language code '{base_language}' not in WhisperX accepted codes, using as-is")
+        return base_language
+```
+
+**Parameters:**
+- `language_code`: The language code to clean (e.g., `en-US`, `hi-IN`).
+
+**Returns:**
+- A cleaned, WhisperX-compatible language code (e.g., `en`, `hi`).
+
+---
+
+### chunk_text
+
+The `chunk_text` function breaks a long piece of text into smaller chunks based on sentence boundaries and a maximum character limit.
+
+```python
+def chunk_text(text: str, max_chars: int) -> list:
+    """Break long text at sentence boundaries"""
+    if len(text) <= max_chars:
+        return [text]
+    
+    sentences = re.split(r'(?<=[.!?।])\s+|\n\s*\n', text.strip())
+    chunks, current_chunk = [], ""
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if len(current_chunk + " " + sentence) > max_chars:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                # Sentence too long — break at word level
+                words = sentence.split()
+                temp_chunk = ""
+                for word in words:
+                    if len(temp_chunk + " " + word) <= max_chars:
+                        temp_chunk += " " + word if temp_chunk else word
+                    else:
+                        if temp_chunk:
+                            chunks.append(temp_chunk.strip())
+                        temp_chunk = word
+                if temp_chunk:
+                    current_chunk = temp_chunk
+        else:
+            current_chunk += " " + sentence if current_chunk else sentence
+
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    # Final safety split
+    final_chunks = []
+    for chunk in chunks:
+        if len(chunk) <= max_chars:
+            final_chunks.append(chunk)
+        else:
+            for i in range(0, len(chunk), max_chars):
+                final_chunks.append(chunk[i:i + max_chars])
+    return final_chunks
+```
+
+**Parameters:**
+- `text`: The text to chunk.
+- `max_chars`: The maximum number of characters per chunk.
+
+**Returns:**
+- A list of text chunks.
+
+---
+
+### translate_text_sarvam
+
+The `translate_text_sarvam` function translates text using the Sarvam AI API, with support for chunking long text.
+
+```python
+def translate_text_sarvam(text: str, source_lang: str, target_lang: str, sarvam_client) -> str:
+    """Translate text using Sarvam AI with chunking"""
+    chunks = chunk_text(text, TRANSLATE_MAX_CHARS)
+    translated_chunks = []
+
+    for chunk in chunks:
+        try:
+            response = sarvam_client.text.translate(
+                input=chunk,
+                source_language_code=source_lang,
+                target_language_code=target_lang,
+                model="mayura:v1",
+                mode="modern-colloquial",
+                enable_preprocessing=True
+            )
+            translated_chunks.append(response.translated_text)
+        except Exception as e:
+            print(f"Translation failed for chunk: {e}")
+            translated_chunks.append(chunk)  # Fallback to original text
+
+    return " ".join(translated_chunks)
+```
+
+**Parameters:**
+- `text`: The text to translate.
+- `source_lang`: The source language code.
+- `target_lang`: The target language code.
+- `sarvam_client`: An instance of the Sarvam AI client.
+
+**Returns:**
+- The translated text.
+
+---
+
+### translate_text_openrouter
+
+The `translate_text_openrouter` function translates text using the OpenRouter AI API.
+
+```python
+def translate_text_openrouter(text: str, source_lang: str, target_lang: str, openrouter_client) -> str:
+    """Translate text using OpenRouter AI"""
+    try:
+        # Convert language codes to human-readable language names
+        lang_map = {
+            "es-ES": "Spanish", "fr-FR": "French", "de-DE": "German", "it-IT": "Italian",
+            "pt-BR": "Portuguese", "ja-JP": "Japanese", "ko-KR": "Korean", "zh-CN": "Chinese",
+            "ar-SA": "Arabic", "en": "English", "en-GB": "English", "ru-RU": "Russian",
+            "nl-NL": "Dutch", "sv-SE": "Swedish", "da-DK": "Danish", "no-NO": "Norwegian",
+            "fi-FI": "Finnish", "pl-PL": "Polish", "hi": "Hindi"
+        }
+        
+        source_language_name = lang_map.get(source_lang, source_lang)
+        target_language_name = lang_map.get(target_lang, target_lang)
+        
+        prompt = f"""Translate the following {source_language_name} text to {target_language_name}.
+        Provide only the translation without any additional text or explanation.
+        
+        Text to translate: {text}"""
+        
+        completion = openrouter_client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": os.environ.get("OPENROUTER_REFERRER_URL", ""),
+                "X-Title": os.environ.get("OPENROUTER_SITE_NAME", ""),
+            },
+            model="meta-llama/llama-4-scout",
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ]
+        )
+        
+        translated_text = completion.choices[0].message.content.strip()
+        return translated_text
+        
+    except Exception as e:
+        print(f"OpenRouter translation failed: {e}")
+        return text  # Return original text on failure
+```
+
+**Parameters:**
+- `text`: The text to translate.
+- `source_lang`: The source language code.
+- `target_lang`: The target language code.
+- `openrouter_client`: An instance of the OpenRouter client.
+
+**Returns:**
+- The translated text.

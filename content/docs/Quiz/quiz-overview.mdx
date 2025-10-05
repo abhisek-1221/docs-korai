@@ -1,0 +1,175 @@
+---
+title: Quiz Generator - Overview
+description: Complete overview of the AI-powered quiz generation feature
+---
+
+# Quiz Generator Feature Overview
+
+The Quiz Generator feature creates interactive multiple-choice quizzes from YouTube video transcripts using AI language models. It fetches video details and transcripts, generates customizable quizzes, provides instant feedback, and allows export in multiple formats.
+
+## Architecture
+
+The feature is organized into four main components:
+
+### 1. **Store** (`quiz-store.ts`)
+Zustand store managing global state for video details, quiz questions, user answers, UI states, and usage tracking.
+
+### 2. **Hooks**
+- `use-fetch-video-transcript.ts` - Fetches video details and transcript data
+- `use-generate-quiz.ts` - Generates quiz questions from transcript using AI
+- `use-quiz-actions.ts` - Handles quiz interactions (answer selection, submit, retry, copy, download)
+- `use-fetch-usage.ts` - Tracks API usage limits
+
+### 3. **Component** (`quiz-view-page.tsx`)
+Main UI component rendering the input form, video details, quiz questions with interactive options, scoring, and export actions.
+
+### 4. **API Integration**
+- `/api/videoDetail` - Fetches YouTube video metadata
+- `/api/transcribe` - Fetches full video transcript
+- `/api/quiz` - Generates quiz questions using AI language model
+- `/api/usage` - Tracks usage limits for quiz generation
+
+## Feature Capabilities
+
+### Quiz Generation
+- **Customizable Quantity**: Generate 2-10 questions per quiz
+- **AI-Powered**: Uses Gemini 2.5 Flash model for intelligent question generation
+- **Multiple Question Types**: Multiple-choice questions with 4 options each
+- **Explanations**: AI provides explanations for correct answers
+- **Smart Parsing**: Handles various AI response formats and validates question structure
+
+### Video Integration
+- Video thumbnail display
+- Title, channel, and description
+- View count, like count, and publish date
+- Expandable description with show more/less toggle
+
+### Quiz Interaction
+- **Answer Selection**: Click to select answers before submission
+- **Visual Feedback**: Selected options highlighted in blue
+- **Submit Once**: Quiz locks after submission
+- **Instant Scoring**: Shows score badge (X/Y) after submission
+- **Color-Coded Results**:
+  - Green border/background for correct answers
+  - Red border/background for incorrect answers
+  - Checkmark/X icons on each question
+- **Explanations Display**: Shows AI-generated explanations after submission
+
+### Export Options
+- **Copy to Clipboard**: Formatted quiz text with questions, options, and answers
+- **Download TXT**: Save quiz to text file
+- **Retry**: Reset answers to retake the quiz
+
+### User Experience
+- Loading skeletons during video fetch
+- Quiz generation skeleton showing expected question count
+- Welcome card before first quiz generation
+- Toast notifications for errors and success states
+- Abort controller support for canceling ongoing requests
+- Responsive layout for mobile and desktop
+
+## Data Flow
+
+1. **User Input**: User enters YouTube video URL and selects number of questions (2-10)
+2. **Validation**: URL validated using `validateYoutubeVideoUrl()`
+3. **Fetch Video Details**: POST request to `/api/videoDetail`
+4. **Fetch Transcript**: POST request to `/api/transcribe` to get full transcript
+5. **Transcript Validation**: Ensures transcript is at least 50 characters
+6. **Generate Quiz**: POST request to `/api/quiz` with transcript, model, and question count
+7. **Parse Response**: Extracts and validates quiz questions from AI response
+8. **Store Update**: Quiz questions and empty user answers saved to store
+9. **UI Render**: Quiz questions displayed with interactive options
+10. **User Interaction**:
+    - Select answers by clicking options
+    - Submit quiz when all questions answered
+    - View score and explanations
+    - Retry to reset answers
+    - Copy or download quiz
+
+## TypeScript Interfaces
+
+### QuizQuestion
+```typescript
+interface QuizQuestion {
+  id: string;              // Unique identifier (q1, q2, etc.)
+  question: string;        // Question text
+  options: string[];       // Array of 4 options
+  correctAnswer: number;   // Index of correct option (0-3)
+  explanation?: string;    // Optional explanation
+}
+```
+
+### UserAnswer
+```typescript
+interface UserAnswer {
+  questionId: string;      // References QuizQuestion.id
+  selectedOption: number;  // Selected option index (-1 if not answered)
+}
+```
+
+### VideoDetails
+```typescript
+interface VideoDetails {
+  id: string;
+  title: string;
+  description: string;
+  thumbnails: {
+    maxres?: { url: string };
+    high?: { url: string };
+    medium?: { url: string };
+  };
+  channelTitle: string;
+  publishedAt: string;
+  duration: number;
+  viewCount: number;
+  likeCount: number;
+}
+```
+
+### UsageInfo
+```typescript
+interface UsageInfo {
+  limit: number;           // Total allowed requests
+  remaining: number;       // Requests remaining
+  reset: number;          // Timestamp when limit resets
+  used: number;           // Requests used
+}
+```
+
+## State Management
+
+The store maintains 16 state properties:
+- `videoUrl` - Input URL from user
+- `videoDetails` - Video metadata from YouTube API
+- `quiz` - Array of generated quiz questions
+- `userAnswers` - User's selected answers for each question
+- `selectedLLM` - AI model to use (default: 'gemini-2.5-flash')
+- `numQuestions` - Number of questions to generate (2-10)
+- `showFullDescription` - Toggle for video description expansion
+- `isLoading` - Loading state for video/transcript fetch
+- `isGenerating` - Loading state for quiz generation
+- `isSubmitted` - Whether quiz has been submitted
+- `isSuccess` - Success state for UI feedback
+- `score` - Number of correct answers
+- `hasCopied` - Temporary state for copy button feedback
+- `usage` - API usage information
+
+## Error Handling
+
+The feature includes comprehensive error handling:
+- Empty URL validation
+- YouTube URL format validation
+- Video availability checks
+- Transcript availability validation
+- Transcript length validation (minimum 50 characters)
+- AI response parsing with fallbacks
+- Question format validation
+- Abort signal support for cancellation
+- User-friendly error messages for common issues
+
+## Related Documentation
+
+- [Quiz Store](/docs/Quiz/quiz-store) - Detailed store implementation
+- [Quiz Hooks](/docs/Quiz/quiz-hooks) - Custom hooks for fetching and generation
+- [Quiz Component](/docs/Quiz/quiz-component) - Main UI component breakdown
+- [Quiz Actions](/docs/Quiz/quiz-actions) - User interaction handlers

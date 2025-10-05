@@ -1,0 +1,414 @@
+---
+title: Chat with Video - API Route
+description: Next.js API route for streaming AI chat responses
+---
+
+## Overview
+
+The chat API route handles streaming AI responses using the Vercel AI SDK. It supports multiple AI providers, web search, rate limiting, and returns streaming responses in real-time to the client.
+
+## API Route File
+
+**Location**: `src/app/api/chat/route.ts`
+
+**Endpoint**: `POST /api/chat`
+
+**Max Duration**: 30 seconds
+
+## Configuration
+
+```typescript
+export const maxDuration = 30;
+```
+Allows streaming responses up to 30 seconds.
+
+## Request Flow
+
+### 1. Authentication
+
+```typescript
+const { userId } = await auth();
+
+if (!userId) {
+  return NextResponse.json(
+    { error: 'Authentication required' },
+    { status: 401 }
+  );
+}
+```
+Uses Clerk's `auth()` to verify user is authenticated. Returns 401 if not logged in.
+
+### 2. Rate Limiting
+
+#### Check Rate Limit
+```typescript
+let rateLimitResult;
+try {
+  rateLimitResult = await userChatLimiter.limit(`chat_${userId}`);
+} catch (error) {
+  console.error('Rate limiter error:', error);
+  return NextResponse.json(
+    {
+      error: 'Service temporarily unavailable. Please try again in a moment.'
+    },
+    { status: 503 }
+  );
+}
+```
+Checks rate limit using Upstash Redis. Uses identifier `chat_{userId}` for per-user limits.
+
+#### Extract Rate Limit Info
+```typescript
+const { success, limit, remaining, reset } = rateLimitResult;
+```
+Gets rate limit status from result.
+
+#### Handle Rate Limit Exceeded
+```typescript
+if (!success) {
+  return NextResponse.json(
+    {
+      error: 'Chat limit exceeded. You have used all 30 chat attempts for today.',
+      limit,
+      remaining: 0,
+      reset
+    },
+    {
+      status: 429,
+      headers: {
+        'X-RateLimit-Limit': limit.toString(),
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': reset.toString()
+      }
+    }
+  );
+}
+```
+Returns 429 status with rate limit headers when user exceeds limit (30 chats per day).
+
+### 3. Parse Request Body
+
+```typescript
+const {
+  messages,
+  model,
+  webSearch,
+  system
+}: {
+  messages: UIMessage[] | any[];
+  model: string;
+  webSearch: boolean;
+  system?: string;
+} = await req.json();
+```
+
+#### Request Parameters
+
+- **messages**: Array of chat messages (can be UIMessage format or simple format)
+- **model**: AI model identifier (e.g., 'meta-llama/llama-3.1-70b-instruct')
+- **webSearch**: Boolean flag to enable web search via Perplexity
+- **system**: Optional system prompt (includes video transcript as context)
+
+### 4. Model Selection
+
+```typescript
+const selectedModel = getModel(DEFAULT_MODEL);
+```
+Gets the default model from provider configuration. `DEFAULT_MODEL` is set to `'gemini-2.5-flash'`.
+
+### 5. Message Processing
+
+```typescript
+let processedMessages;
+if (messages && messages.length > 0 && 'parts' in messages[0]) {
+  // UIMessage format from useChat
+  processedMessages = convertToModelMessages(messages as UIMessage[]);
+} else {
+  // Simple format from thread generation or other sources
+  processedMessages = messages;
+}
+```
+
+#### Message Format Detection
+- **UIMessage format**: Messages from `useChat` hook with `parts` property
+- **Simple format**: Plain message arrays from thread generation
+
+Converts UIMessage format to model-compatible format using `convertToModelMessages()`.
+
+### 6. Generate Streaming Response
+
+```typescript
+const result = streamText({
+  model: webSearch ? 'perplexity/sonar' : (selectedModel as any),
+  messages: processedMessages,
+  system:
+    system ||
+    'You are a helpful assistant that can answer questions and help with tasks',
+  experimental_transform: smoothStream()
+});
+```
+
+#### Parameters
+
+- **model**: Uses Perplexity Sonar if `webSearch` is true, otherwise uses selected model
+- **messages**: Processed message array
+- **system**: Custom system prompt (includes transcript) or default assistant prompt
+- **experimental_transform**: `smoothStream()` for smoother streaming experience
+
+### 7. Return Streaming Response
+
+```typescript
+return result.toUIMessageStreamResponse({
+  sendSources: true,
+  sendReasoning: true,
+  headers: {
+    'X-RateLimit-Limit': limit.toString(),
+    'X-RateLimit-Remaining': remaining.toString(),
+    'X-RateLimit-Reset': reset.toString()
+  }
+});
+```
+
+#### Response Configuration
+
+- **sendSources**: Includes source URLs in response (for web search)
+- **sendReasoning**: Includes reasoning parts in response
+- **headers**: Rate limit information for client
+
+### 8. Error Handling
+
+```typescript
+catch (error) {
+  console.error('Error in chat route:', error);
+  return NextResponse.json(
+    { error: 'Failed to process chat request' },
+    { status: 500 }
+  );
+}
+```
+Catches any errors during processing and returns 500 status.
+
+## System Prompt Format
+
+The system prompt includes the video transcript for context:
+
+```typescript
+system: `You are an AI assistant helping users understand video content. You have access to the following video transcript:
+
+${transcript}
+
+Answer questions based on this transcript. Be conversational, helpful, and accurate. If something is not mentioned in the transcript, say so.`
+```
+
+This prompt:
+1. Defines the AI's role
+2. Provides the full transcript as context
+3. Sets guidelines for responses
+
+## Response Format
+
+### Success Response (Streaming)
+Returns a streaming response with:
+- **Content-Type**: `text/event-stream`
+- **Headers**: Rate limit information
+- **Body**: Streaming message parts
+
+### UIMessage Parts
+```typescript
+{
+  id: "msg-123",
+  role: "assistant",
+  parts: [
+    { type: "text", text: "Response content..." },
+    { type: "reasoning", text: "I analyzed..." },
+    { type: "source-url", url: "https://..." }
+  ]
+}
+```
+
+### Error Responses
+
+#### 401 Unauthorized
+```json
+{
+  "error": "Authentication required"
+}
+```
+
+#### 429 Rate Limit Exceeded
+```json
+{
+  "error": "Chat limit exceeded. You have used all 30 chat attempts for today.",
+  "limit": 30,
+  "remaining": 0,
+  "reset": 1234567890
+}
+```
+
+#### 500 Internal Server Error
+```json
+{
+  "error": "Failed to process chat request"
+}
+```
+
+#### 503 Service Unavailable
+```json
+{
+  "error": "Service temporarily unavailable. Please try again in a moment."
+}
+```
+
+## AI Provider Integration
+
+### Provider Configuration
+
+**File**: `src/lib/providers.ts`
+
+```typescript
+import { createGroq } from '@ai-sdk/groq';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createCerebras } from '@ai-sdk/cerebras';
+
+export const groq = createGroq({
+  apiKey: process.env.GROQ_API_KEY
+});
+
+const cerebras = createCerebras({
+  apiKey: process.env.CEREBRAS_API_KEY
+});
+
+export const google = createGoogleGenerativeAI({
+  apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY
+});
+
+export function getModel(modelName: string) {
+  if (modelName.startsWith('gemini-')) {
+    return google(modelName);
+  } else {
+    return cerebras(modelName);
+  }
+}
+
+export const DEFAULT_MODEL = 'gemini-2.5-flash';
+```
+
+### Model Selection Logic
+- **Gemini models**: Use Google Generative AI provider
+- **Other models**: Use Cerebras provider (Llama models)
+- **Web search**: Always use Perplexity Sonar
+
+### Available Models
+1. **Gemini 2.5 Flash** (default): Fast, efficient Google model
+2. **Llama 3.1 70B**: Large Llama model via Cerebras
+3. **Llama 4 Maverick**: Latest Llama model via Cerebras
+4. **Perplexity Sonar**: Web search enabled model
+
+## Rate Limiting Details
+
+### Configuration
+- **Limiter**: `userChatLimiter` from `@/lib/ratelimit`
+- **Identifier**: `chat_{userId}` (per-user limit)
+- **Limit**: 30 chat attempts per day
+- **Backend**: Upstash Redis
+
+### Rate Limit Headers
+```
+X-RateLimit-Limit: 30
+X-RateLimit-Remaining: 25
+X-RateLimit-Reset: 1234567890
+```
+
+### Client Usage
+Client can read these headers to show remaining attempts:
+```typescript
+const remaining = response.headers.get('X-RateLimit-Remaining');
+// Display to user: "25 chats remaining today"
+```
+
+## Web Search Mode
+
+### Activation
+When `webSearch` is `true`, the route uses Perplexity's Sonar model:
+
+```typescript
+model: webSearch ? 'perplexity/sonar' : selectedModel
+```
+
+### Features
+- Real-time web information
+- Source URLs included in response
+- Useful for current events or facts not in transcript
+
+### Response with Sources
+```typescript
+{
+  id: "msg-123",
+  role: "assistant",
+  parts: [
+    { type: "text", text: "Based on recent data..." },
+    { type: "source-url", url: "https://example.com/source" },
+    { type: "source-url", url: "https://example.com/another-source" }
+  ]
+}
+```
+
+## Security Considerations
+
+### Authentication Required
+All requests must be authenticated via Clerk. The user ID is used for:
+- Rate limiting
+- Logging (if implemented)
+- Potential future features (conversation history, etc.)
+
+### Rate Limiting
+Prevents abuse by limiting each user to 30 chats per day.
+
+### Error Message Safety
+Generic error messages prevent leaking system details:
+```typescript
+{ error: 'Failed to process chat request' }
+```
+
+## Usage Example
+
+### Client Request
+```typescript
+const response = await fetch('/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    messages: [
+      { role: 'user', content: 'What is this video about?' }
+    ],
+    model: 'meta-llama/llama-3.1-70b-instruct',
+    webSearch: false,
+    system: `You are an AI assistant helping users understand video content. 
+             Transcript: ${transcript}`
+  })
+});
+```
+
+### With useChat Hook
+```typescript
+const { messages, sendMessage } = useChat();
+
+sendMessage(
+  { text: 'Summarize this video' },
+  {
+    body: {
+      model: 'meta-llama/llama-3.1-70b-instruct',
+      webSearch: true,
+      system: `Transcript: ${transcript}`
+    }
+  }
+);
+```
+
+## Related Documentation
+
+- [Chat Overview](/docs/ChatWithVideo/chat-overview)
+- [Chat Store](/docs/ChatWithVideo/chat-store)
+- [Chat Hooks](/docs/ChatWithVideo/chat-hooks)
+- [Chat Component](/docs/ChatWithVideo/chat-component)
+- [Rate Limiting](/docs/Infrastructure/rate-limiting)

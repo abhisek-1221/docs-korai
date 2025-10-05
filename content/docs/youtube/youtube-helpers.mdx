@@ -1,0 +1,664 @@
+---
+title: YouTube Helper Functions
+description: Detailed documentation of YouTube API helper functions in ythelper.ts
+---
+
+## Core Helper Functions
+
+All helper functions are located in `/src/lib/ythelper.ts` and provide reusable utilities for YouTube API operations.
+
+## Configuration
+
+```typescript
+export const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
+export const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
+```
+
+## URL Parsing Functions
+
+### extractVideoId
+
+Extracts a YouTube video ID from various URL formats.
+
+```typescript
+export function extractVideoId(url: string): string | null
+```
+
+**Supported URL Formats:**
+- `https://www.youtube.com/watch?v=VIDEO_ID`
+- `https://youtu.be/VIDEO_ID`
+- `https://www.youtube.com/embed/VIDEO_ID`
+- `https://www.youtube.com/v/VIDEO_ID`
+- `https://www.youtube.com/shorts/VIDEO_ID`
+
+**Example:**
+```typescript
+import { extractVideoId } from '@/lib/ythelper';
+
+const videoId = extractVideoId('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+// Returns: 'dQw4w9WgXcQ'
+```
+
+**Returns:**
+- Video ID string if valid URL
+- `null` if URL is invalid or doesn't contain a video ID
+
+---
+
+### extractPlaylistId
+
+Extracts a YouTube playlist ID from a URL.
+
+```typescript
+export function extractPlaylistId(url: string): string | null
+```
+
+**Supported URL Format:**
+- `https://www.youtube.com/playlist?list=PLAYLIST_ID`
+- `https://www.youtube.com/watch?v=VIDEO_ID&list=PLAYLIST_ID`
+
+**Example:**
+```typescript
+import { extractPlaylistId } from '@/lib/ythelper';
+
+const playlistId = extractPlaylistId(
+  'https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf'
+);
+// Returns: 'PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf'
+```
+
+**Returns:**
+- Playlist ID string if found
+- `null` if URL doesn't contain a playlist parameter
+
+---
+
+### extractChannelId
+
+Extracts a YouTube channel ID from various channel URL formats.
+
+```typescript
+export function extractChannelId(url: string): string | null
+```
+
+**Supported URL Formats:**
+- `https://www.youtube.com/channel/UC...` (returns immediately)
+- `https://www.youtube.com/c/ChannelName` (requires API lookup)
+- `https://www.youtube.com/@username` (requires API lookup)
+
+**Example:**
+```typescript
+import { extractChannelId } from '@/lib/ythelper';
+
+const channelId = extractChannelId(
+  'https://www.youtube.com/channel/UCXuqSBlHAE6Xw-yeJA0Tunw'
+);
+// Returns: 'UCXuqSBlHAE6Xw-yeJA0Tunw'
+```
+
+**Note:** For custom URLs and handles, this function returns `null` and requires a follow-up call to `getChannelIdFromUsername()`.
+
+---
+
+### getChannelIdFromUsername
+
+Resolves a username or custom URL to a channel ID using the YouTube Search API.
+
+```typescript
+export async function getChannelIdFromUsername(
+  username: string
+): Promise<string | null>
+```
+
+**Example:**
+```typescript
+import { getChannelIdFromUsername } from '@/lib/ythelper';
+
+const channelId = await getChannelIdFromUsername('LinusTechTips');
+// Returns: 'UCXuqSBlHAE6Xw-yeJA0Tunw'
+```
+
+**API Endpoint:**
+```
+GET https://www.googleapis.com/youtube/v3/search
+  ?part=snippet
+  &q={username}
+  &type=channel
+  &key={API_KEY}
+```
+
+**Returns:**
+- Channel ID if found
+- `null` if no matching channel
+
+---
+
+## Formatting Functions
+
+### parseDuration
+
+Converts ISO 8601 duration format (PT#H#M#S) to seconds.
+
+```typescript
+export const parseDuration = (duration: string): number
+```
+
+**Example:**
+```typescript
+import { parseDuration } from '@/lib/ythelper';
+
+const seconds = parseDuration('PT1H23M45S');
+// Returns: 5025 (1*3600 + 23*60 + 45)
+
+const shortVideo = parseDuration('PT2M30S');
+// Returns: 150
+```
+
+**Format:** YouTube returns durations in ISO 8601 format:
+- `PT1H2M3S` = 1 hour, 2 minutes, 3 seconds
+- `PT15M` = 15 minutes
+- `PT45S` = 45 seconds
+
+---
+
+### formatDuration
+
+Converts seconds to human-readable duration format.
+
+```typescript
+export const formatDuration = (seconds: number): string
+```
+
+**Example:**
+```typescript
+import { formatDuration } from '@/lib/ythelper';
+
+formatDuration(5025);   // Returns: '1h 23m 45s'
+formatDuration(150);    // Returns: '2m 30s'
+formatDuration(45);     // Returns: '45s'
+formatDuration(90000);  // Returns: '1d 1h 0m 0s'
+```
+
+---
+
+### formatDurationForDisplay
+
+Formats duration in HH:MM:SS or MM:SS format for video players.
+
+```typescript
+export function formatDurationForDisplay(seconds: number): string
+```
+
+**Example:**
+```typescript
+import { formatDurationForDisplay } from '@/lib/ythelper';
+
+formatDurationForDisplay(5025);  // Returns: '1:23:45'
+formatDurationForDisplay(150);   // Returns: '2:30'
+formatDurationForDisplay(45);    // Returns: '0:45'
+```
+
+---
+
+### formatNumber
+
+Formats numbers with compact notation (K, M, B).
+
+```typescript
+export const formatNumber = (num: number): string
+```
+
+**Example:**
+```typescript
+import { formatNumber } from '@/lib/ythelper';
+
+formatNumber(1234);        // Returns: '1.2K'
+formatNumber(1234567);     // Returns: '1.2M'
+formatNumber(1234567890);  // Returns: '1.2B'
+formatNumber(42);          // Returns: '42'
+```
+
+---
+
+### formatDate
+
+Formats ISO date strings to readable format.
+
+```typescript
+export const formatDate = (dateString: string) => {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+};
+```
+
+**Example:**
+```typescript
+import { formatDate } from '@/lib/ythelper';
+
+formatDate('2024-01-15T10:30:00Z');
+// Returns: 'January 15, 2024'
+```
+
+---
+
+### formatTimestamp
+
+Converts milliseconds to MM:SS timestamp format for transcripts.
+
+```typescript
+export const formatTimestamp = (ms: number): string
+```
+
+**Example:**
+```typescript
+import { formatTimestamp } from '@/lib/ythelper';
+
+formatTimestamp(125000);  // Returns: '2:05'
+formatTimestamp(3661000); // Returns: '61:01'
+```
+
+---
+
+## Video Data Functions
+
+### fetchVideoData
+
+Fetches comprehensive video details including metadata, statistics, and channel information.
+
+```typescript
+export async function fetchVideoData(videoId: string): Promise<VideoData>
+```
+
+**Example:**
+```typescript
+import { fetchVideoData } from '@/lib/ythelper';
+
+const videoData = await fetchVideoData('dQw4w9WgXcQ');
+
+console.log(videoData);
+// {
+//   id: 'dQw4w9WgXcQ',
+//   title: 'Rick Astley - Never Gonna Give You Up',
+//   channel: 'Rick Astley',
+//   channelId: 'UCuAXFkgsw1L7xaCfnd5JJOw',
+//   views: 1234567890,
+//   viewsFormatted: '1.2B views',
+//   published: 'October 25, 2009',
+//   description: '...',
+//   likes: 12345678,
+//   likesFormatted: '12M',
+//   comments: 1234567,
+//   commentsFormatted: '1.2M',
+//   duration: 213,
+//   durationFormatted: '3:33',
+//   thumbnails: { ... }
+// }
+```
+
+**API Calls:**
+1. Fetches video details with `videos` endpoint
+2. Fetches channel details with `channels` endpoint
+
+**YouTube API Endpoints Used:**
+```
+GET /youtube/v3/videos?part=snippet,statistics,contentDetails&id={videoId}
+GET /youtube/v3/channels?part=snippet&id={channelId}
+```
+
+**Throws:**
+- `'Failed to fetch video details'` - API request failed
+- `'Video not found'` - Invalid video ID or video doesn't exist
+- `'Failed to fetch channel details'` - Channel lookup failed
+
+---
+
+## Channel Data Functions
+
+### fetchChannelData
+
+Retrieves comprehensive channel information including statistics.
+
+```typescript
+export async function fetchChannelData(
+  channelId: string
+): Promise<ChannelData>
+```
+
+**Example:**
+```typescript
+import { fetchChannelData } from '@/lib/ythelper';
+
+const channel = await fetchChannelData('UCXuqSBlHAE6Xw-yeJA0Tunw');
+
+console.log(channel);
+// {
+//   name: 'Linus Tech Tips',
+//   username: '@LinusTechTips',
+//   videosCount: 5234,
+//   subscribers: 15200000,
+//   totalViews: 7123456789,
+//   thumbnails: { ... },
+//   country: 'CA'
+// }
+```
+
+**YouTube API Endpoint:**
+```
+GET /youtube/v3/channels
+  ?part=snippet,statistics,contentDetails
+  &id={channelId}
+```
+
+---
+
+### fetchRecentVideos
+
+Fetches recent uploaded videos from a channel.
+
+```typescript
+export async function fetchRecentVideos(
+  channelId: string,
+  maxResults = 5
+): Promise<RecentVideo[]>
+```
+
+**Example:**
+```typescript
+import { fetchRecentVideos } from '@/lib/ythelper';
+
+const recentVideos = await fetchRecentVideos('UCXuqSBlHAE6Xw-yeJA0Tunw', 10);
+
+console.log(recentVideos);
+// [
+//   {
+//     title: 'Latest Tech Review',
+//     views: 523000,
+//     uploadTime: '2 days ago',
+//     thumbnail: 'https://...',
+//     videoId: 'abc123',
+//     duration: 1245,
+//     likeCount: 45000
+//   },
+//   // ... more videos
+// ]
+```
+
+**Process:**
+1. Fetches channel's uploads playlist ID
+2. Retrieves playlist items (recent videos)
+3. Fetches detailed statistics for each video
+4. Combines data and formats timestamps
+
+**YouTube API Endpoints:**
+```
+GET /youtube/v3/channels?part=contentDetails&id={channelId}
+GET /youtube/v3/playlistItems?part=snippet&playlistId={uploadsPlaylistId}
+GET /youtube/v3/videos?part=statistics,contentDetails&id={videoIds}
+```
+
+---
+
+### fetchViewsData
+
+Generates approximate daily views data for a channel (for visualization).
+
+```typescript
+export async function fetchViewsData(
+  channelId: string,
+  days = 6
+): Promise<ViewData[]>
+```
+
+**Note:** This function generates estimated data based on total views, as YouTube Analytics API requires OAuth. For production, consider implementing YouTube Analytics API.
+
+**Example:**
+```typescript
+import { fetchViewsData } from '@/lib/ythelper';
+
+const viewsData = await fetchViewsData('UCXuqSBlHAE6Xw-yeJA0Tunw', 7);
+
+console.log(viewsData);
+// [
+//   { name: '1', views: 234567 },
+//   { name: '2', views: 198234 },
+//   { name: '3', views: 267890 },
+//   // ... 7 days total
+// ]
+```
+
+---
+
+## Playlist Functions
+
+### fetchPlaylistDetails
+
+Fetches playlist metadata including title, description, and thumbnails.
+
+```typescript
+export async function fetchPlaylistDetails(
+  playlistId: string
+): Promise<PlaylistDetails>
+```
+
+**Example:**
+```typescript
+import { fetchPlaylistDetails } from '@/lib/ythelper';
+
+const playlist = await fetchPlaylistDetails('PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf');
+
+console.log(playlist);
+// {
+//   id: 'PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf',
+//   title: 'Python Tutorial for Beginners',
+//   description: 'Complete Python course...',
+//   thumbnails: {
+//     default: { url: '...', width: 120, height: 90 },
+//     medium: { url: '...', width: 320, height: 180 },
+//     high: { url: '...', width: 480, height: 360 }
+//   }
+// }
+```
+
+**YouTube API Endpoint:**
+```
+GET /youtube/v3/playlists?part=snippet&id={playlistId}
+```
+
+---
+
+### fetchPlaylistVideoIds
+
+Retrieves all video IDs from a playlist with automatic pagination.
+
+```typescript
+export async function fetchPlaylistVideoIds(
+  playlistId: string
+): Promise<string[]>
+```
+
+**Example:**
+```typescript
+import { fetchPlaylistVideoIds } from '@/lib/ythelper';
+
+const videoIds = await fetchPlaylistVideoIds('PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf');
+
+console.log(videoIds);
+// ['abc123', 'def456', 'ghi789', ... ] // All video IDs in playlist
+```
+
+**Features:**
+- Automatic pagination (handles playlists with 100+ videos)
+- Returns all video IDs in a single array
+- Handles `nextPageToken` automatically
+
+**YouTube API Endpoint:**
+```
+GET /youtube/v3/playlistItems
+  ?part=contentDetails
+  &playlistId={playlistId}
+  &maxResults=50
+  &pageToken={nextPageToken}
+```
+
+---
+
+### fetchVideoDetails
+
+Fetches detailed information for multiple videos with batch processing.
+
+```typescript
+export async function fetchVideoDetails(
+  videoIds: string[]
+): Promise<{ videos: VideoItem[]; totalDuration: number }>
+```
+
+**Example:**
+```typescript
+import { fetchVideoDetails } from '@/lib/ythelper';
+
+const videoIds = ['abc123', 'def456', 'ghi789'];
+const { videos, totalDuration } = await fetchVideoDetails(videoIds);
+
+console.log(`Total Duration: ${totalDuration} seconds`);
+console.log(`Videos:`, videos);
+// videos: [
+//   {
+//     id: 'abc123',
+//     title: 'Introduction to Python',
+//     description: '...',
+//     thumbnails: { ... },
+//     channelTitle: 'Programming with Mosh',
+//     publishedAt: '2023-01-15T10:00:00Z',
+//     duration: 1234,
+//     viewCount: 500000,
+//     likeCount: 25000
+//   },
+//   // ... more videos
+// ]
+```
+
+**Features:**
+- Processes videos in chunks of 50 (YouTube API limit)
+- Parallel processing of chunks using `Promise.all`
+- Calculates total duration of all videos
+- Returns complete video metadata
+
+**YouTube API Endpoint:**
+```
+GET /youtube/v3/videos
+  ?part=contentDetails,snippet,statistics
+  &id={videoId1,videoId2,...}
+  &maxResults=50
+```
+
+---
+
+## Transcript Functions
+
+### fetchTranscript
+
+Extracts video transcripts with timestamps using the Innertube library.
+
+```typescript
+export async function fetchTranscript(
+  youtube: any, 
+  videoId: string
+): Promise<{
+  segments: Array<{ text: string; startTime: string; endTime: string }>;
+  fullTranscript: string;
+}>
+```
+
+**Example:**
+```typescript
+import { Innertube } from 'youtubei.js/web';
+import { fetchTranscript } from '@/lib/ythelper';
+
+const youtube = await Innertube.create({
+  lang: 'en',
+  location: 'US',
+  retrieve_player: false
+});
+
+const transcript = await fetchTranscript(youtube, 'dQw4w9WgXcQ');
+
+console.log(transcript);
+// {
+//   segments: [
+//     { text: 'Hello everyone', startTime: '0:00', endTime: '0:02' },
+//     { text: 'Welcome to the video', startTime: '0:02', endTime: '0:05' },
+//     // ... more segments
+//   ],
+//   fullTranscript: 'Hello everyone Welcome to the video ...'
+// }
+```
+
+**Error Handling:**
+The function handles various error cases:
+- Transcripts disabled on video
+- Private or unavailable videos
+- No captions available
+- YouTube parser issues (with retry logic in API route)
+
+**Throws:**
+- `'No transcript available for this video'`
+- `'Transcripts are disabled for this video'`
+- `'This video is private or unavailable'`
+- `'Transcript appears to be empty'`
+
+---
+
+## Usage Example: Complete Workflow
+
+Here's a complete example of fetching a video, its channel, and transcript:
+
+```typescript
+import { 
+  extractVideoId, 
+  fetchVideoData, 
+  fetchChannelData,
+  fetchTranscript 
+} from '@/lib/ythelper';
+import { Innertube } from 'youtubei.js/web';
+
+async function analyzeYouTubeVideo(url: string) {
+  // 1. Extract video ID
+  const videoId = extractVideoId(url);
+  if (!videoId) {
+    throw new Error('Invalid YouTube URL');
+  }
+
+  // 2. Fetch video data
+  const video = await fetchVideoData(videoId);
+  console.log(`Title: ${video.title}`);
+  console.log(`Views: ${video.viewsFormatted}`);
+  console.log(`Duration: ${video.durationFormatted}`);
+
+  // 3. Fetch channel data
+  const channel = await fetchChannelData(video.channelId);
+  console.log(`Channel: ${channel.name}`);
+  console.log(`Subscribers: ${formatNumber(channel.subscribers)}`);
+
+  // 4. Fetch transcript
+  const youtube = await Innertube.create({
+    lang: 'en',
+    location: 'US',
+    retrieve_player: false
+  });
+  
+  const transcript = await fetchTranscript(youtube, videoId);
+  console.log(`Transcript length: ${transcript.fullTranscript.length} characters`);
+  console.log(`Segments: ${transcript.segments.length}`);
+
+  return { video, channel, transcript };
+}
+
+// Usage
+analyzeYouTubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  .then(data => console.log('Analysis complete:', data))
+  .catch(error => console.error('Error:', error));
+```
+

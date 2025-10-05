@@ -1,0 +1,442 @@
+---
+title: Database - NeonDB & Prisma
+description: PostgreSQL database setup with NeonDB and Prisma ORM
+---
+
+# Database Architecture
+
+The application uses NeonDB (serverless PostgreSQL) as the database provider and Prisma as the ORM. This setup provides a scalable, serverless database with type-safe database queries.
+
+## Prisma Client Configuration
+
+### Client Initialization
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
+
+export const prisma =
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    log:
+      process.env.NODE_ENV === 'development'
+        ? ['query', 'error', 'warn']
+        : ['error']
+  });
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+```
+
+**How It Works**:
+
+1. **Global Instance Pattern**: Prevents multiple Prisma Client instances
+   - In development, Next.js hot reloads can create multiple instances
+   - `globalForPrisma` stores client on global object
+   - Reuses existing instance if available
+   - Creates new instance only if needed
+
+2. **Logging Configuration**: Different log levels per environment
+   - **Development**: Logs queries, errors, and warnings
+     - `['query', 'error', 'warn']` shows all SQL queries for debugging
+   - **Production**: Logs errors only
+     - `['error']` reduces noise and improves performance
+
+3. **Global Assignment**: Preserves instance across hot reloads
+   - `if (process.env.NODE_ENV !== 'production')` check ensures only in development
+   - Stores instance on global object for reuse
+   - Production creates fresh instance on each deployment
+
+**Usage**:
+```typescript
+import { prisma } from '@/lib/prisma';
+
+// Query database
+const videos = await prisma.video.findMany({
+  where: { userId: 'user_123' }
+});
+```
+
+## Database Schema
+
+The schema defines three main models for the viral clips feature:
+
+### Video Model
+
+```prisma
+model Video {
+  id        String   @id @default(cuid())
+  userId    String   // Clerk user ID
+  youtubeUrl String
+  s3Key     String   // youtube-videos/{uuid}/yt
+  prompt    String?
+  
+  // Response fields
+  totalClips       Int?
+  videoDuration    String?
+  detectedLanguage String?
+  s3Path           String?
+  
+  clips          Clip[]
+  exportedClips  ExportedClip[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([s3Key])
+}
+```
+
+**Fields**:
+- `id`: Unique identifier using CUID (collision-resistant unique ID)
+- `userId`: Links to Clerk authenticated user
+- `youtubeUrl`: Original YouTube video URL
+- `s3Key`: S3 path where video stored: `youtube-videos/{uuid}/yt`
+- `prompt`: Optional custom prompt for clip identification
+- `totalClips`: Number of clips identified by AI
+- `videoDuration`: Duration of original video
+- `detectedLanguage`: Language detected in video
+- `s3Path`: Full S3 path to video file
+
+**Relations**:
+- One-to-many with `Clip`: A video has multiple clips
+- One-to-many with `ExportedClip`: A video has multiple exported clips
+
+**Indexes**:
+- `userId`: Fast queries for user's videos
+- `s3Key`: Fast lookups by S3 storage key
+
+**Timestamps**:
+- `createdAt`: Auto-set on record creation
+- `updatedAt`: Auto-updated on record modification
+
+### Clip Model
+
+```prisma
+model Clip {
+  id             String   @id @default(cuid())
+  videoId        String
+  video          Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  
+  start          String
+  end            String
+  title          String
+  summary        String   @db.Text
+  viralityScore  String
+  relatedTopics  String[] // Array of topics
+  transcript     String   @db.Text
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@index([videoId])
+  @@index([viralityScore])
+}
+```
+
+**Fields**:
+- `id`: Unique clip identifier
+- `videoId`: Foreign key to parent video
+- `start`: Clip start timestamp (seconds or MM:SS format)
+- `end`: Clip end timestamp
+- `title`: AI-generated title for clip
+- `summary`: Detailed summary of clip content (TEXT type for long content)
+- `viralityScore`: Score indicating viral potential
+- `relatedTopics`: Array of topic strings
+- `transcript`: Full transcript of clip segment (TEXT type)
+
+**Relations**:
+- Many-to-one with `Video`: Each clip belongs to one video
+- `onDelete: Cascade`: Deleting video deletes all its clips
+
+**Indexes**:
+- `videoId`: Fast queries for clips of specific video
+- `viralityScore`: Fast sorting/filtering by virality
+
+**Data Types**:
+- `@db.Text`: PostgreSQL TEXT type for unlimited length strings
+- `String[]`: Native array support in PostgreSQL
+
+### ExportedClip Model
+
+```prisma
+model ExportedClip {
+  id             String   @id @default(cuid())
+  videoId        String
+  video          Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  
+  start          String   // Original clip start time
+  end            String   // Original clip end time
+  s3Key          String   // S3 path to the exported video clip
+  aspectRatio    String   // 1:1, 16:9, 9:16
+  targetLanguage String?  // Target language for translation (null if none)
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@index([videoId])
+}
+```
+
+**Fields**:
+- `id`: Unique exported clip identifier
+- `videoId`: Foreign key to parent video
+- `start`: Original clip start time from identification
+- `end`: Original clip end time from identification
+- `s3Key`: S3 path to exported/processed video file
+- `aspectRatio`: Export aspect ratio (1:1 for Instagram, 16:9 for YouTube, 9:16 for TikTok/Reels)
+- `targetLanguage`: Language for subtitle translation (null if no translation)
+
+**Relations**:
+- Many-to-one with `Video`: Each exported clip belongs to one video
+- `onDelete: Cascade`: Deleting video deletes all exported clips
+
+**Indexes**:
+- `videoId`: Fast queries for exported clips of specific video
+
+## Prisma Configuration
+
+### Schema Configuration
+
+```prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+```
+
+**Generator**:
+- `prisma-client-js`: Generates TypeScript Prisma Client
+- Auto-generates types matching schema
+- Provides type-safe query methods
+
+**Datasource**:
+- `provider = "postgresql"`: Uses PostgreSQL database
+- `url = env("DATABASE_URL")`: Connection string from environment variable
+- NeonDB provides PostgreSQL-compatible database
+
+## Common Queries
+
+### Create Video Record
+
+```typescript
+const video = await prisma.video.create({
+  data: {
+    userId: 'user_123',
+    youtubeUrl: 'https://youtube.com/watch?v=...',
+    s3Key: 'youtube-videos/uuid-123/yt',
+    prompt: 'Find viral moments'
+  }
+});
+```
+
+### Update Video with Metadata
+
+```typescript
+await prisma.video.update({
+  where: { id: videoId },
+  data: {
+    totalClips: 5,
+    videoDuration: '300',
+    detectedLanguage: 'en',
+    s3Path: 's3://bucket/path/video.mp4'
+  }
+});
+```
+
+### Create Multiple Clips
+
+```typescript
+await prisma.clip.createMany({
+  data: clips.map((clip) => ({
+    videoId: video.id,
+    start: clip.start.toString(),
+    end: clip.end.toString(),
+    title: clip.title,
+    summary: clip.summary,
+    viralityScore: clip.virality_score.toString(),
+    relatedTopics: clip.related_topics,
+    transcript: clip.transcript
+  }))
+});
+```
+
+### Query Video with Relations
+
+```typescript
+const video = await prisma.video.findUnique({
+  where: { id: videoId },
+  include: {
+    clips: {
+      orderBy: { viralityScore: 'desc' }
+    },
+    exportedClips: true
+  }
+});
+```
+
+**Result Structure**:
+```typescript
+{
+  id: 'video_123',
+  userId: 'user_123',
+  youtubeUrl: 'https://...',
+  // ... other video fields
+  clips: [
+    { id: 'clip_1', title: '...', viralityScore: '95', ... },
+    { id: 'clip_2', title: '...', viralityScore: '87', ... }
+  ],
+  exportedClips: [
+    { id: 'export_1', s3Key: '...', aspectRatio: '9:16', ... }
+  ]
+}
+```
+
+### Filter User's Videos
+
+```typescript
+const userVideos = await prisma.video.findMany({
+  where: { userId },
+  orderBy: { createdAt: 'desc' },
+  include: {
+    _count: {
+      select: { clips: true, exportedClips: true }
+    }
+  }
+});
+```
+
+Returns videos with counts of clips and exports without loading full relations.
+
+### Delete Video (Cascades to Clips)
+
+```typescript
+await prisma.video.delete({
+  where: { id: videoId }
+});
+```
+
+Due to `onDelete: Cascade`, this automatically deletes:
+- All associated clips
+- All associated exported clips
+
+## NeonDB Integration
+
+### Connection
+
+NeonDB provides serverless PostgreSQL with:
+- **Instant Scaling**: Scales to zero when inactive
+- **Branching**: Git-like database branches for development
+- **Connection Pooling**: Built-in pooling for serverless functions
+- **Low Latency**: Global edge network
+
+### Connection String
+
+```bash
+DATABASE_URL="postgresql://user:password@ep-name-123456.region.aws.neon.tech/dbname?sslmode=require"
+```
+
+**Components**:
+- `postgresql://`: PostgreSQL protocol
+- `user:password`: Database credentials
+- `ep-name-123456.region.aws.neon.tech`: NeonDB endpoint
+- `/dbname`: Database name
+- `?sslmode=require`: SSL required for security
+
+### Connection Pooling
+
+For serverless functions, use connection pooling:
+
+```bash
+# Direct connection (for migrations)
+DATABASE_URL="postgresql://..."
+
+# Pooled connection (for application)
+DATABASE_URL="postgresql://...?pgbouncer=true"
+```
+
+Pooling prevents exhausting database connections in serverless environments.
+
+## Migrations
+
+### Create Migration
+
+```bash
+npx prisma migrate dev --name add_video_model
+```
+
+Creates migration file in `prisma/migrations/` directory.
+
+### Apply Migrations (Production)
+
+```bash
+npx prisma migrate deploy
+```
+
+Applies pending migrations to production database.
+
+### Generate Prisma Client
+
+```bash
+npx prisma generate
+```
+
+Regenerates Prisma Client after schema changes. Required before using new models/fields.
+
+### Reset Database (Development)
+
+```bash
+npx prisma migrate reset
+```
+
+Drops database, recreates schema, and re-runs migrations. **Warning**: Deletes all data.
+
+## Type Safety
+
+Prisma generates TypeScript types automatically:
+
+```typescript
+import { Video, Clip, Prisma } from '@prisma/client';
+
+// Type-safe create input
+const videoData: Prisma.VideoCreateInput = {
+  userId: 'user_123',
+  youtubeUrl: 'https://...',
+  s3Key: 'path/to/video',
+  clips: {
+    create: [
+      {
+        start: '0',
+        end: '30',
+        title: 'Clip 1',
+        // ... TypeScript ensures all required fields
+      }
+    ]
+  }
+};
+
+// Type-safe query result
+const video: Video & { clips: Clip[] } = await prisma.video.findUnique({
+  where: { id: 'video_123' },
+  include: { clips: true }
+});
+```
+
+All database operations are fully type-checked at compile time, catching errors before runtime.
+
+## Environment Variables
+
+```bash
+# NeonDB Connection
+DATABASE_URL="postgresql://user:password@host.neon.tech/dbname?sslmode=require"
+
+# Optional: Direct URL for migrations
+DIRECT_URL="postgresql://user:password@host.neon.tech/dbname?sslmode=require"
+```
+
+The connection string should be kept secure and never committed to version control.

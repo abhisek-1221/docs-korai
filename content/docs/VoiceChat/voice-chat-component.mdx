@@ -1,0 +1,630 @@
+---
+title: Voice Chat Component
+description: Main UI component for voice chat interface
+---
+
+# Voice Chat Component
+
+The Voice Chat component provides the complete UI for voice-enabled conversations with YouTube videos. It handles both the initial setup phase and the active chat interface.
+
+## Component Structure
+
+```tsx
+export default function VoiceChatViewPage() {
+  // State
+  const [videoUrl, setVideoUrl] = useState('');
+  const [transcript, setTranscript] = useState('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [hasTranscript, setHasTranscript] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState('en-US');
+  const [audioLevel, setAudioLevel] = useState(0);
+
+  // Refs
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  // ... handler functions and effects
+}
+```
+
+## Two-Phase UI
+
+The component renders different UIs based on whether a transcript is loaded:
+
+### Phase 1: Setup View (No Transcript)
+
+Shown when `hasTranscript === false`.
+
+```tsx
+if (!hasTranscript) {
+  return (
+    <PageContainer scrollable>
+      <div className='flex min-h-[calc(100vh-8rem)] w-full flex-col'>
+        <Heading
+          title='Talk with Video'
+          description='Voice-enabled conversations with YouTube videos in multiple languages'
+        />
+
+        <div className='mt-8 flex flex-1 flex-col items-center justify-center'>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className='w-full max-w-2xl space-y-6'
+          >
+            <FeatureCard type='voice-chat' />
+
+            <Card>
+              <CardContent className='p-4'>
+                <form onSubmit={handleVideoSubmit} className='space-y-4'>
+                  <div className='flex flex-col gap-3 sm:flex-row'>
+                    <Input
+                      type='url'
+                      placeholder='Enter YouTube URL...'
+                      value={videoUrl}
+                      onChange={(e) => setVideoUrl(e.target.value)}
+                      className='flex-1'
+                      disabled={loading}
+                    />
+                    <Select
+                      value={selectedLanguage}
+                      onValueChange={setSelectedLanguage}
+                    >
+                      <SelectTrigger className='w-full sm:w-48'>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {LANGUAGES.map((lang) => (
+                            <SelectItem key={lang.code} value={lang.code}>
+                              {lang.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FancyButton
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleVideoSubmit(e);
+                      }}
+                      loading={loading}
+                      label='Activate Agent'
+                    />
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+      </div>
+    </PageContainer>
+  );
+}
+```
+
+**Setup View Components**:
+
+1. **Feature Card**: Shows feature description and benefits
+2. **URL Input**: Text field for YouTube video URL
+3. **Language Selector**: Dropdown with 11 supported languages
+4. **Activate Button**: Triggers transcript fetch and agent activation
+
+**How Setup Works**:
+- User enters YouTube URL
+- User selects preferred language
+- User clicks "Activate Agent"
+- `handleVideoSubmit` is called
+- Validates URL using `validateYoutubeVideoUrl()`
+- Fetches transcript via `/api/transcribe`
+- Updates state: `hasTranscript = true`
+- Adds system welcome message
+- UI switches to Chat View
+
+### Phase 2: Chat View (With Transcript)
+
+Shown when `hasTranscript === true`.
+
+```tsx
+return (
+  <PageContainer scrollable>
+    <div className='w-full space-y-4'>
+      <div className='flex items-start justify-between'>
+        <Heading
+          title='Voice Chat'
+          description={`Speak and chat in ${LANGUAGES.find((l) => l.code === selectedLanguage)?.name}`}
+        />
+      </div>
+
+      <Card>
+        <CardContent className='flex h-[calc(100vh-16rem)] flex-col p-4 md:p-6'>
+          {/* Messages Area */}
+          <div className='flex-1 overflow-hidden'>
+            <ScrollArea className='h-full pr-4' ref={scrollAreaRef}>
+              <div className='space-y-4 pb-4'>
+                <AnimatePresence>
+                  {messages.map((message) => (
+                    // Message bubbles
+                  ))}
+                </AnimatePresence>
+
+                {isProcessingAudio && (
+                  // Processing indicator
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+
+          {/* Voice Controls */}
+          <div className='mt-4 space-y-4 border-t pt-4'>
+            {/* Microphone button and controls */}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+
+    <audio ref={audioRef} style={{ display: 'none' }} />
+  </PageContainer>
+);
+```
+
+**Chat View Sections**:
+
+1. **Header**: Shows "Voice Chat" title with selected language
+2. **Messages Area**: Scrollable conversation history
+3. **Voice Controls**: Microphone button and status indicators
+4. **Hidden Audio Element**: For playing responses
+
+## Message Rendering
+
+Each message is rendered based on its role (user/assistant/system):
+
+```tsx
+{messages.map((message) => (
+  <motion.div
+    key={message.id}
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -10 }}
+    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+  >
+    <div
+      className={`flex max-w-[80%] items-start gap-3 ${
+        message.role === 'user' ? 'flex-row-reverse' : ''
+      }`}
+    >
+      {/* Avatar Icon */}
+      <div
+        className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
+          message.role === 'user'
+            ? 'bg-primary'
+            : message.role === 'system'
+              ? 'bg-muted'
+              : 'bg-primary/80'
+        }`}
+      >
+        {message.role === 'user' ? (
+          <User className='text-primary-foreground h-4 w-4' />
+        ) : message.role === 'system' ? (
+          <MessageSquare className='h-4 w-4' />
+        ) : (
+          <Bot className='text-primary-foreground h-4 w-4' />
+        )}
+      </div>
+
+      {/* Message Content */}
+      <div
+        className={`rounded-lg px-4 py-2 ${
+          message.role === 'user'
+            ? 'bg-primary text-primary-foreground'
+            : message.role === 'system'
+              ? 'bg-muted text-muted-foreground'
+              : 'bg-secondary'
+        }`}
+      >
+        <Markdown className='prose prose-sm dark:prose-invert max-w-none'>
+          {message.content}
+        </Markdown>
+
+        {/* Play Audio Button (for assistant messages) */}
+        {message.audioUrl && (
+          <div className='mt-2 flex items-center gap-2'>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() => playAudio(message.audioUrl!)}
+              className='h-8'
+            >
+              <Volume2 className='mr-2 h-3 w-3' />
+              Play Audio
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  </motion.div>
+))}
+```
+
+**Message Styling**:
+
+**User Messages**:
+- Aligned right
+- Primary color background
+- User icon avatar
+- No audio playback
+
+**Assistant Messages**:
+- Aligned left
+- Secondary color background
+- Bot icon avatar
+- Play Audio button (if audioUrl exists)
+
+**System Messages**:
+- Aligned left
+- Muted background
+- MessageSquare icon
+- Welcome/status messages
+
+**Animation**:
+- Fade in from bottom on mount
+- Fade out upward on unmount
+- Smooth transitions with Framer Motion
+
+## Voice Controls Section
+
+The bottom control panel manages recording and playback:
+
+```tsx
+<div className='mt-4 space-y-4 border-t pt-4'>
+  <div className='flex items-center justify-center gap-4'>
+    {/* Microphone Button */}
+    <div className='relative'>
+      <Button
+        onClick={toggleRecording}
+        disabled={isProcessingAudio}
+        size='lg'
+        className={`relative h-16 w-16 rounded-full transition-all ${
+          isRecording
+            ? 'bg-destructive hover:bg-destructive/90 animate-pulse'
+            : 'bg-primary hover:bg-primary/90'
+        }`}
+      >
+        {isProcessingAudio ? (
+          <Loader2 className='h-6 w-6 animate-spin' />
+        ) : isRecording ? (
+          <MicOff className='h-6 w-6' />
+        ) : (
+          <Mic className='h-6 w-6' />
+        )}
+      </Button>
+
+      {/* Pulse Animation */}
+      {isRecording && (
+        <div className='border-destructive absolute -inset-2 animate-ping rounded-full border-2 opacity-75' />
+      )}
+
+      {/* Audio Level Indicator */}
+      {isRecording && audioLevel > 0 && (
+        <div
+          className='border-primary absolute -inset-1 rounded-full border-2 transition-all duration-100'
+          style={{
+            transform: `scale(${1 + (audioLevel / 255) * 0.5})`,
+            opacity: 0.7 + (audioLevel / 255) * 0.3
+          }}
+        />
+      )}
+    </div>
+
+    {/* Force Stop Button */}
+    {(isRecording || isProcessingAudio) && (
+      <Button
+        onClick={forceStop}
+        size='lg'
+        variant='destructive'
+        className='h-12 px-6'
+      >
+        Stop
+      </Button>
+    )}
+  </div>
+
+  {/* Status Text */}
+  <div className='text-center'>
+    <p className='text-muted-foreground text-sm'>
+      {isRecording
+        ? 'Speaking... Click microphone to stop'
+        : isProcessingAudio
+          ? 'Processing your speech...'
+          : 'Click microphone to start speaking'}
+    </p>
+    {isRecording && (
+      <p className='text-muted-foreground mt-1 text-xs'>
+        Audio level: {Math.round(audioLevel)}
+      </p>
+    )}
+  </div>
+
+  {/* Load New Video */}
+  <div className='text-muted-foreground flex items-center justify-between text-xs'>
+    <span />
+    <Button variant='ghost' size='sm' onClick={resetChat}>
+      Load new video
+    </Button>
+  </div>
+</div>
+```
+
+**Microphone Button States**:
+
+1. **Idle**: Blue, shows Mic icon, enabled
+2. **Recording**: Red, shows MicOff icon, pulsing animation, audio level ring
+3. **Processing**: Blue, shows Loader spinner, disabled
+
+**Audio Level Visualization**:
+- Scales border ring based on audio level (0-255)
+- Opacity increases with louder input
+- Updates in real-time during recording
+- Provides visual feedback that microphone is working
+
+**Force Stop Button**:
+- Only visible when recording or processing
+- Immediately cancels current operation
+- Stops recording without processing audio
+- Useful if user wants to abort
+
+## Handler Functions
+
+### handleVideoSubmit
+
+```tsx
+const handleVideoSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!videoUrl.trim()) {
+    toast.error('Please enter a YouTube URL');
+    return;
+  }
+
+  // Validate YouTube URL
+  const validation = validateYoutubeVideoUrl(videoUrl);
+  if (!validation.isValid) {
+    toast.error(validation.error || 'Please enter a valid YouTube video URL');
+    return;
+  }
+
+  setLoading(true);
+  setMessages([]);
+  setTranscript('');
+  setHasTranscript(false);
+
+  try {
+    const response = await fetch('/api/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoUrl })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to fetch transcript');
+    }
+
+    if (!data?.transcript?.fullTranscript) {
+      throw new Error('No transcript available for this video');
+    }
+
+    setTranscript(data.transcript.fullTranscript);
+    setHasTranscript(true);
+
+    setMessages([
+      {
+        id: Date.now().toString(),
+        role: 'system',
+        content:
+          "Voice agent is ready! You can now speak and I'll respond with voice in your selected language."
+      }
+    ]);
+
+    toast.success('Voice Agent Ready. Click the microphone to start speaking!');
+  } catch (error: any) {
+    console.error('Error fetching transcript:', error);
+    toast.error(error.message || 'Failed to fetch transcript');
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+**Submit Flow**:
+1. Validates URL is non-empty
+2. Validates YouTube URL format and video ID
+3. Resets previous state (messages, transcript)
+4. Fetches transcript from API
+5. Updates state with transcript
+6. Adds welcome system message
+7. Shows success notification
+
+### toggleRecording
+
+```tsx
+const toggleRecording = () => {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+};
+```
+
+Single function for microphone button click.
+
+### startRecording
+
+```tsx
+const startRecording = async () => {
+  if (!hasTranscript || isRecording || isProcessingAudio) return;
+
+  const initialized = await initializeRecording();
+  if (!initialized) return;
+
+  setIsRecording(true);
+  setAudioLevel(0);
+  mediaRecorderRef.current?.start();
+  monitorAudioLevel();
+
+  toast.info('Recording... Click the microphone again to stop.');
+};
+```
+
+**Start Actions**:
+1. Guard: Check transcript exists and not already recording
+2. Initialize MediaRecorder and audio context
+3. Set recording state to true
+4. Reset audio level
+5. Start MediaRecorder
+6. Begin audio level monitoring
+7. Show recording notification
+
+### stopRecording
+
+```tsx
+const stopRecording = () => {
+  if (mediaRecorderRef.current && isRecording) {
+    try {
+      if (mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+      setIsRecording(false);
+      setAudioLevel(0);
+
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+      setIsRecording(false);
+      setAudioLevel(0);
+    }
+  }
+};
+```
+
+**Stop Actions**:
+1. Stop MediaRecorder (triggers `onstop` event)
+2. Reset recording state
+3. Reset audio level
+4. Cancel audio monitoring animation
+5. Triggers audio processing pipeline
+
+### resetChat
+
+```tsx
+const resetChat = () => {
+  setHasTranscript(false);
+  setMessages([]);
+  setTranscript('');
+  setVideoUrl('');
+};
+```
+
+Resets entire component back to setup view for new video.
+
+## Effects
+
+### Auto-scroll Messages
+
+```tsx
+const scrollToBottom = useCallback(() => {
+  if (scrollAreaRef.current) {
+    const scrollContainer = scrollAreaRef.current.querySelector(
+      '[data-radix-scroll-area-viewport]'
+    );
+    if (scrollContainer) {
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+    }
+  }
+}, []);
+
+useEffect(() => {
+  scrollToBottom();
+}, [messages, scrollToBottom]);
+```
+
+Automatically scrolls to bottom when new messages are added.
+
+### Cleanup Effect
+
+```tsx
+useEffect(() => {
+  return () => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state === 'recording'
+    ) {
+      mediaRecorderRef.current.stop();
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  };
+}, []);
+```
+
+Cleans up resources on component unmount:
+- Stops active recording
+- Cancels animation frames
+- Pauses audio playback
+
+## Language Configuration
+
+```tsx
+const LANGUAGES = [
+  { code: 'en-US', name: 'English' },
+  { code: 'hi-IN', name: 'Hindi' },
+  { code: 'bn-IN', name: 'Bengali' },
+  { code: 'ta-IN', name: 'Tamil' },
+  { code: 'te-IN', name: 'Telugu' },
+  { code: 'mr-IN', name: 'Marathi' },
+  { code: 'gu-IN', name: 'Gujarati' },
+  { code: 'kn-IN', name: 'Kannada' },
+  { code: 'ml-IN', name: 'Malayalam' },
+  { code: 'od-IN', name: 'Odia' },
+  { code: 'pa-IN', name: 'Punjabi' }
+];
+```
+
+Language selector uses this array for dropdown options.
+
+## Responsive Design
+
+**Mobile (< 640px)**:
+- Vertical layout for input and selectors
+- Full-width language selector
+- Smaller message max-width (80%)
+- Touch-optimized button sizes
+
+**Desktop (≥ 640px)**:
+- Horizontal layout for controls
+- Fixed-width language selector (192px)
+- Larger message area
+- Mouse-optimized interactions
+
+## Accessibility
+
+- Proper ARIA labels on buttons
+- Keyboard navigation support
+- Screen reader friendly status messages
+- Color contrast meets WCAG AA standards
+- Focus indicators on interactive elements

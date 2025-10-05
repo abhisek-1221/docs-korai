@@ -1,0 +1,623 @@
+---
+title: Quiz Component
+description: Main UI component for the Quiz Generator feature
+---
+
+# Quiz Component
+
+The `QuizViewPage` component is the main UI for the Quiz Generator feature. It renders the input form with question selector, video details card, loading skeletons, quiz questions with interactive options, scoring display, and export actions.
+
+## Component Structure
+
+The component has seven main sections:
+
+1. **Header** - Page title and description
+2. **Input Form** - Number selector, URL input, generate button
+3. **Welcome Card** - Feature introduction (shown initially)
+4. **Loading Skeleton** - Placeholder during video fetch
+5. **Video Details** - Thumbnail, metadata, statistics
+6. **Quiz Skeleton** - Placeholder during quiz generation
+7. **Quiz Section** - Interactive questions with options, scoring, and actions
+
+## Store and Hook Connections
+
+```typescript
+const {
+  videoUrl,
+  videoDetails,
+  quiz,
+  userAnswers,
+  numQuestions,
+  showFullDescription,
+  isLoading,
+  isGenerating,
+  isSubmitted,
+  isSuccess,
+  score,
+  hasCopied,
+  setVideoUrl,
+  setNumQuestions,
+  setShowFullDescription
+} = useQuizStore();
+
+const { fetchVideoAndTranscript } = useFetchVideoAndTranscript();
+const {
+  handleAnswerSelect,
+  handleQuizSubmit,
+  handleRetry,
+  handleCopy,
+  handleDownload
+} = useQuizActions();
+```
+
+Connects to store for state and three hooks for functionality.
+
+## Abort Controller Pattern
+
+```typescript
+const abortControllerRef = useRef<AbortController | null>(null);
+
+const handleSubmission = useCallback(async (e: React.FormEvent) => {
+  // ... validation ...
+  
+  // Create new abort controller
+  abortControllerRef.current = new AbortController();
+  await fetchVideoAndTranscript(abortControllerRef.current.signal);
+}, [numQuestions, fetchVideoAndTranscript, videoUrl]);
+
+// Cleanup on unmount
+useEffect(() => {
+  return () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+}, []);
+```
+
+**Purpose**: 
+- Cancels ongoing API requests when component unmounts
+- Prevents memory leaks and state updates on unmounted component
+- Creates new controller for each submission
+- Cleanup function in useEffect aborts on unmount
+
+## Form Submission Handler
+
+```typescript
+const handleSubmission = useCallback(
+  async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Validation
+    if (
+      !numQuestions ||
+      parseInt(numQuestions) < 2 ||
+      parseInt(numQuestions) > 10
+    ) {
+      toast.error('Please select number of questions between 2 and 10');
+      return;
+    }
+
+    // Check if URL is empty
+    if (!videoUrl || !videoUrl.trim()) {
+      toast.error('Please enter a YouTube video URL');
+      return;
+    }
+
+    // Validate YouTube URL
+    const validation = validateYoutubeVideoUrl(videoUrl);
+
+    if (!validation.isValid) {
+      toast.error(
+        validation.error || 'Please enter a valid YouTube video URL'
+      );
+      return;
+    }
+
+    // Create new abort controller
+    abortControllerRef.current = new AbortController();
+    await fetchVideoAndTranscript(abortControllerRef.current.signal);
+  },
+  [numQuestions, fetchVideoAndTranscript, videoUrl]
+);
+```
+
+**Validation Steps**:
+1. Prevents default form submission
+2. Validates `numQuestions` is between 2-10
+3. Checks URL is not empty
+4. Validates YouTube URL format
+5. Creates abort controller for cancellation support
+6. Calls `fetchVideoAndTranscript` with abort signal
+
+## UI Sections
+
+### Header Section
+
+```tsx
+<Heading
+  title='Quiz Generator'
+  description='Generate interactive quizzes from YouTube videos'
+/>
+```
+
+Simple page header with title and description.
+
+### Input Form Section
+
+```tsx
+<Card className='bg-background border-zinc-800'>
+  <CardContent className='p-4'>
+    <div className='space-y-3'>
+      <div className='flex flex-col gap-2 sm:flex-row'>
+        <Select value={numQuestions} onValueChange={setNumQuestions}>
+          <SelectTrigger className='w-full sm:w-[140px]'>
+            <SelectValue placeholder='Questions' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {Array.from({ length: 9 }, (_, i) => i + 2).map((num) => (
+                <SelectItem key={num} value={num.toString()}>
+                  {num} Questions
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Input
+          type='text'
+          value={videoUrl}
+          onChange={(e) => setVideoUrl(e.target.value)}
+          placeholder='Enter YouTube video URL...'
+          className='flex-1'
+        />
+
+        <FancyButton
+          onClick={handleSubmission}
+          loading={isLoading || isGenerating}
+          success={isSuccess}
+          label={isGenerating ? 'Generating...' : 'Generate Quiz'}
+        />
+      </div>
+    </div>
+  </CardContent>
+</Card>
+```
+
+**Components**:
+
+**Number Select**:
+- Dropdown with options 2-10
+- Generated with `Array.from({ length: 9 }, (_, i) => i + 2)`
+- Width: Full on mobile, 140px on desktop
+- Updates `numQuestions` in store
+
+**URL Input**:
+- Controlled input bound to `videoUrl`
+- Placeholder text guides user
+- Flex-1 to fill remaining space
+
+**FancyButton**:
+- Shows loading spinner when `isLoading` or `isGenerating`
+- Shows success animation when `isSuccess`
+- Label changes to "Generating..." during quiz generation
+- Calls `handleSubmission` on click
+
+**Responsive Layout**:
+- Column layout on mobile (`flex-col`)
+- Row layout on desktop (`sm:flex-row`)
+
+### Welcome Card
+
+```tsx
+{!videoDetails && !isLoading && !isGenerating && (
+  <FeatureCard type='quiz' />
+)}
+```
+
+**Conditions**:
+- Shows only when no video details
+- Hidden during loading
+- Hidden during generation
+- Introduces feature to first-time users
+
+### Loading Skeleton
+
+```tsx
+{isLoading && !videoDetails && (
+  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+    <VideoSkeleton />
+  </motion.div>
+)}
+```
+
+**Conditions**:
+- Shows during video fetch (`isLoading`)
+- Only if no video details yet
+- Fades in with motion animation
+- Placeholder mimics video card layout
+
+### Video Details Section
+
+```tsx
+{videoDetails && (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    className='space-y-4'
+  >
+    <Card className='bg-background border-zinc-800'>
+      <CardContent className='p-4'>
+        <div className='grid gap-4 md:grid-cols-[300px,1fr]'>
+          {/* Thumbnail */}
+          <div className='relative aspect-video overflow-hidden rounded-lg'>
+            <img
+              src={
+                videoDetails.thumbnails.maxres?.url ||
+                videoDetails.thumbnails.high?.url
+              }
+              alt={videoDetails.title}
+              className='h-full w-full object-cover'
+            />
+          </div>
+          
+          {/* Video Info */}
+          <div className='space-y-2'>
+            <h2 className='text-lg font-bold'>{videoDetails.title}</h2>
+            <p className='text-muted-foreground'>
+              {videoDetails.channelTitle}
+            </p>
+            
+            {/* Statistics Badges */}
+            <div className='flex flex-wrap gap-2'>
+              <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+                <Calendar className='h-4 w-4 text-yellow-600' />
+                {formatDate(videoDetails.publishedAt)}
+              </span>
+              <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+                <Eye className='h-4 w-4 text-blue-400' />
+                {formatNumber(videoDetails.viewCount)} views
+              </span>
+              <span className='bg-secondary flex items-center gap-1 rounded-full px-2 py-1 text-sm'>
+                <ThumbsUp className='h-4 w-4 text-green-500' />
+                {formatNumber(videoDetails.likeCount)} likes
+              </span>
+            </div>
+            
+            {/* Description */}
+            <div>
+              <p
+                className={`text-muted-foreground text-sm ${showFullDescription ? '' : 'line-clamp-2'}`}
+              >
+                {videoDetails.description}
+              </p>
+              <Button
+                variant='ghost'
+                onClick={() => setShowFullDescription(!showFullDescription)}
+                className='text-muted-foreground hover:text-foreground mt-1 h-auto p-0 text-xs'
+              >
+                {showFullDescription ? (
+                  <>
+                    Show less <ChevronUp className='ml-1 h-3 w-3' />
+                  </>
+                ) : (
+                  <>
+                    Show more <ChevronDown className='ml-1 h-3 w-3' />
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  </motion.div>
+)}
+```
+
+**Layout**:
+- Responsive grid: single column on mobile, 300px thumbnail + remaining space on desktop
+- Thumbnail with aspect-video ratio
+- Uses maxres or high quality thumbnail (fallback)
+
+**Video Info**:
+- Title (bold, larger text)
+- Channel name (muted color)
+- Three statistics badges with colored icons
+- Formatted numbers using `formatNumber()` helper
+- Formatted date using `formatDate()` helper
+
+**Description**:
+- Conditional CSS: `line-clamp-2` when collapsed
+- Toggle button changes text and icon based on state
+- Ghost button style (transparent background)
+
+**Animation**:
+- Fades in when video details available
+- Entire section wrapped in motion.div
+
+### Quiz Skeleton
+
+```tsx
+{isGenerating && (
+  <QuizSkeleton questionsCount={parseInt(numQuestions)} />
+)}
+```
+
+**Shown When**: `isGenerating` is true
+
+**Props**: Passes expected question count to render correct number of placeholders
+
+**Effect**: Shows animated skeleton matching final quiz layout
+
+### Quiz Section
+
+```tsx
+{quiz.length > 0 && !isGenerating && (
+  <Card className='bg-background border-zinc-800'>
+    <CardContent className='p-4'>
+      {/* Header */}
+      <div className='mb-4 flex items-center justify-between'>
+        <div className='flex items-center gap-3'>
+          <h3 className='text-lg font-semibold'>Generated Quiz</h3>
+          {isSubmitted && (
+            <div className='rounded-full bg-blue-600 px-3 py-1 text-sm font-medium'>
+              Score: {score}/{quiz.length}
+            </div>
+          )}
+        </div>
+        <div className='flex gap-2'>
+          {isSubmitted && (
+            <Button
+              variant='ghost'
+              size='icon'
+              onClick={handleRetry}
+              className='rounded-full'
+            >
+              <RotateCcw className='h-4 w-4' />
+            </Button>
+          )}
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={handleCopy}
+            className='rounded-full'
+          >
+            {hasCopied ? (
+              <Check className='h-4 w-4 text-green-400' />
+            ) : (
+              <Copy className='h-4 w-4' />
+            )}
+          </Button>
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={handleDownload}
+            className='rounded-full'
+          >
+            <Download className='h-4 w-4' />
+          </Button>
+        </div>
+      </div>
+
+      {/* Questions List */}
+      <ScrollArea className='h-[500px]'>
+        <div className='space-y-6 pr-4'>
+          {quiz.map((question, index) => {
+            const userAnswer = userAnswers.find(
+              (answer) => answer.questionId === question.id
+            );
+            const isCorrect =
+              userAnswer?.selectedOption === question.correctAnswer;
+            const isWrong =
+              isSubmitted &&
+              userAnswer?.selectedOption !== -1 &&
+              userAnswer?.selectedOption !== question.correctAnswer;
+
+            return (
+              <div
+                key={question.id}
+                className={`rounded-lg border p-4 ${
+                  isSubmitted
+                    ? isCorrect
+                      ? 'border-green-500 bg-green-500/10'
+                      : isWrong
+                        ? 'border-red-500 bg-red-500/10'
+                        : 'border-border bg-secondary/30'
+                    : 'border-border bg-secondary/30'
+                }`}
+              >
+                {/* Question Header */}
+                <div className='mb-3 flex items-start gap-2'>
+                  <span className='rounded-full bg-blue-600 px-2 py-1 text-sm font-medium text-white'>
+                    {index + 1}
+                  </span>
+                  <h4 className='flex-1 text-base font-medium'>
+                    {question.question}
+                  </h4>
+                  {isSubmitted && (
+                    <div className='ml-auto'>
+                      {isCorrect ? (
+                        <CheckCircle className='h-5 w-5 text-green-400' />
+                      ) : isWrong ? (
+                        <XCircle className='h-5 w-5 text-red-400' />
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+                {/* Options */}
+                <div className='space-y-2'>
+                  {question.options.map((option, optionIndex) => {
+                    const isSelected =
+                      userAnswer?.selectedOption === optionIndex;
+                    const isCorrectOption =
+                      optionIndex === question.correctAnswer;
+                    const showCorrect =
+                      isSubmitted && isCorrectOption;
+                    const showWrong =
+                      isSubmitted && isSelected && !isCorrectOption;
+
+                    // Remove any existing letter prefixes (A), A., A:, etc.
+                    const cleanOption = option
+                      .replace(/^[A-D][.):\s]+/i, '')
+                      .trim();
+
+                    return (
+                      <button
+                        key={optionIndex}
+                        onClick={() =>
+                          handleAnswerSelect(
+                            question.id,
+                            optionIndex,
+                            isSubmitted
+                          )
+                        }
+                        disabled={isSubmitted}
+                        className={`w-full rounded-md border p-3 text-left transition-colors ${
+                          showCorrect
+                            ? 'border-green-500 bg-green-500/20 text-green-100'
+                            : showWrong
+                              ? 'border-red-500 bg-red-500/20 text-red-100'
+                              : isSelected
+                                ? 'border-blue-500 bg-blue-500/20 text-blue-100'
+                                : 'border-border bg-secondary/50 hover:bg-secondary'
+                        } ${isSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
+                      >
+                        <div className='flex items-center gap-2'>
+                          <span className='font-medium'>
+                            {String.fromCharCode(65 + optionIndex)}.
+                          </span>
+                          <span>{cleanOption}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Explanation */}
+                {isSubmitted && question.explanation && (
+                  <div className='bg-secondary/50 mt-3 rounded-md p-3'>
+                    <p className='text-muted-foreground text-sm'>
+                      <strong>Explanation:</strong>{' '}
+                      {question.explanation}
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </ScrollArea>
+
+      {/* Submit Button */}
+      {quiz.length > 0 && !isSubmitted && (
+        <div className='mt-4 flex justify-center'>
+          <Button
+            onClick={handleQuizSubmit}
+            className='bg-blue-600 px-6 py-2 text-white hover:bg-blue-700'
+          >
+            Submit Quiz
+          </Button>
+        </div>
+      )}
+    </CardContent>
+  </Card>
+)}
+```
+
+**Quiz Header**:
+- Title "Generated Quiz"
+- Score badge (shown after submission): "Score: X/Y"
+- Action buttons:
+  - Retry (shown after submission) - resets answers
+  - Copy - copies to clipboard, shows checkmark temporarily
+  - Download - downloads as TXT file
+
+**Questions List**:
+- Scroll area with 500px fixed height
+- Each question in a card with:
+  - Dynamic border/background colors:
+    - Green for correct answers (after submission)
+    - Red for wrong answers (after submission)
+    - Default gray border otherwise
+  - Question number badge (blue circle)
+  - Question text
+  - Result icon (checkmark or X) after submission
+
+**Options**:
+- Computed states:
+  - `isSelected`: User selected this option
+  - `isCorrectOption`: This is the correct answer
+  - `showCorrect`: Submitted and this is correct answer (green)
+  - `showWrong`: Submitted and user selected wrong answer (red)
+- Clean option text:
+  - Removes existing letter prefixes with regex: `/^[A-D][.):\s]+/i`
+  - Handles formats like "A)", "A.", "A:", "A "
+- Button styling:
+  - Green: Correct answer (after submission)
+  - Red: Wrong selected answer (after submission)
+  - Blue: Selected answer (before submission)
+  - Gray: Unselected answer
+  - Disabled after submission
+  - Cursor changes based on state
+- Letter prefixes added dynamically:
+  - `String.fromCharCode(65 + optionIndex)` converts 0→A, 1→B, 2→C, 3→D
+
+**Explanation**:
+- Shows after submission if explanation exists
+- Gray background box below options
+- Bold "Explanation:" label followed by text
+
+**Submit Button**:
+- Centered below scroll area
+- Only shown before submission
+- Blue background with hover effect
+- Calls `handleQuizSubmit` on click
+
+## Responsive Design
+
+**Input Form**:
+- Mobile: Stacked vertically
+- Desktop: Horizontal row
+
+**Video Details**:
+- Mobile: Single column (thumbnail on top)
+- Desktop: 300px thumbnail + remaining space for info
+
+**Quiz Options**:
+- Full width buttons
+- Wrap text on small screens
+- Touch-friendly tap targets
+
+## Animation Effects
+
+**Fade In**:
+- Video details section
+- Loading skeleton
+- All wrapped in motion.div with `initial={{ opacity: 0 }}` and `animate={{ opacity: 1 }}`
+
+**Question Stacking**:
+- Questions appear in list with 6px spacing
+- No stagger animation (all appear together)
+
+**Button Feedback**:
+- Copy button: Icon changes to checkmark for 2 seconds
+- Options: Hover effect increases background opacity
+
+## Conditional Rendering Logic
+
+The component uses careful conditional rendering to show appropriate UI:
+
+1. **Welcome Card**: `!videoDetails && !isLoading && !isGenerating`
+2. **Loading Skeleton**: `isLoading && !videoDetails`
+3. **Video Details**: `videoDetails` exists
+4. **Quiz Skeleton**: `isGenerating`
+5. **Quiz Section**: `quiz.length > 0 && !isGenerating`
+6. **Score Badge**: `isSubmitted`
+7. **Retry Button**: `isSubmitted`
+8. **Submit Button**: `!isSubmitted`
+9. **Explanations**: `isSubmitted && question.explanation`
+
+This ensures smooth transitions between states without overlapping UI elements.

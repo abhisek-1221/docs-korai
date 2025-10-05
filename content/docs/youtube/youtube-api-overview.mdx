@@ -1,0 +1,86 @@
+---
+title: YouTube Data v3 API Overview
+description: Comprehensive guide to YouTube Data v3 API integration in Korai
+---
+
+## Overview
+
+This documentation covers the YouTube Data v3 API integration in the Korai application. The implementation provides a robust set of utilities and API endpoints for interacting with YouTube content, including videos, playlists, channels, and transcripts.
+
+## Architecture
+
+The YouTube integration is organized into three main layers:
+
+### 1. Helper Libraries (`/src/lib`)
+
+- **`youtube.ts`** - TypeScript interfaces and type definitions
+- **`ythelper.ts`** - Core YouTube API helper functions
+- **`youtube-validator.ts`** - URL validation and parsing utilities
+
+### 2. API Routes (`/src/app/api`)
+
+- **`/api/videoDetail`** - Fetch single video details
+- **`/api/playlist`** - Fetch playlist information and videos
+- **`/api/transcribe`** - Extract video transcripts
+
+### 3. Environment Configuration
+
+```bash
+YOUTUBE_API_KEY=your_youtube_api_key_here
+```
+
+## Key Features
+
+### Video Operations
+- Extract video metadata (title, description, stats)
+- Parse video durations
+- Fetch thumbnails and engagement metrics
+- Support for multiple URL formats
+
+### Playlist Operations
+- Fetch complete playlist details
+- Retrieve all videos in a playlist (paginated)
+- Calculate total playlist duration
+- Batch process video details
+
+### Channel Operations
+- Extract channel information
+- Fetch recent uploads
+- Get channel statistics
+- Parse custom URLs and handles
+
+### Transcript Operations
+- Extract video transcripts with timestamps
+- Support for multiple caption formats
+- Segment-level transcript data
+- Full transcript text aggregation
+
+## API Quota Management
+
+YouTube Data v3 API has daily quota limits (10,000 units by default). Different operations consume different amounts:
+
+- **Video details**: 1 unit per video
+- **Playlist items**: 1 unit per request (50 videos max)
+- **Channel details**: 1 unit per channel
+- **Search**: 100 units per request
+
+The implementation uses efficient batching to minimize quota usage.
+
+## Error Handling
+
+All functions include comprehensive error handling for:
+- Invalid URLs
+- Missing API keys
+- Rate limiting
+- Network failures
+- Invalid video/playlist IDs
+- Private or unavailable content
+
+## Next Steps
+
+Explore the detailed documentation for each component:
+
+- [Helper Functions](/docs/youtube/youtube-helpers)
+- [API Routes](/docs/youtube/youtube-api-routes)
+- [URL Validation](/docs/youtube/youtube-validation)
+- [Type Definitions](/docs/youtube/youtube-types)

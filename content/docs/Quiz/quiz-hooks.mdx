@@ -1,0 +1,585 @@
+---
+title: Quiz Hooks
+description: Custom hooks for quiz generation and data fetching
+---
+
+# Quiz Hooks
+
+The quiz feature uses four custom hooks to handle video/transcript fetching, AI quiz generation, usage tracking, and quiz interaction actions. Each hook encapsulates specific logic and manages state through the quiz store.
+
+## useFetchVideoAndTranscript
+
+This hook orchestrates the complete flow of fetching video details, retrieving the transcript, and triggering quiz generation. It handles validation, error handling, and abort signal support.
+
+### Implementation
+
+```typescript
+import { useCallback } from 'react';
+import { useToast } from '@/hooks/use-toast';
+import { useQuizStore } from '../store/quiz-store';
+import { useGenerateQuiz } from './use-generate-quiz';
+
+export const useFetchVideoAndTranscript = () => {
+  const { toast } = useToast();
+  const { videoUrl, setVideoDetails, setIsLoading, setIsSuccess } =
+    useQuizStore();
+  const { generateQuiz } = useGenerateQuiz();
+
+  const fetchVideoAndTranscript = useCallback(
+    async (abortSignal?: AbortSignal) => {
+      if (!videoUrl) {
+        toast({
+          title: 'Error',
+          description: 'Please enter a YouTube video URL',
+          variant: 'destructive'
+        });
+        return false;
+      }
+
+      setIsLoading(true);
+      setVideoDetails(null);
+
+      try {
+        // Fetch video details
+        const videoResponse = await fetch('/api/videoDetail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoUrl }),
+          signal: abortSignal
+        });
+
+        const videoData = await videoResponse.json();
+
+        if (!videoResponse.ok) {
+          throw new Error(videoData.error || 'Failed to fetch video details');
+        }
+
+        if (videoData.video) {
+          setVideoDetails(videoData.video);
+        }
+
+        // Fetch transcript
+        const transcriptResponse = await fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoUrl }),
+          signal: abortSignal
+        });
+
+        const transcriptData = await transcriptResponse.json();
+
+        if (!transcriptResponse.ok) {
+          throw new Error(transcriptData.error || 'Failed to fetch transcript');
+        }
+
+        if (!transcriptData?.transcript?.fullTranscript) {
+          throw new Error(
+            transcriptData?.error ||
+              'No transcript data available for this video'
+          );
+        }
+
+        const fullTranscript = transcriptData.transcript.fullTranscript.trim();
+
+        if (fullTranscript.length < 50) {
+          throw new Error(
+            'Transcript is too short to generate a meaningful quiz'
+          );
+        }
+
+        setIsLoading(false);
+
+        // Generate quiz with transcript
+        const success = await generateQuiz(fullTranscript, abortSignal);
+
+        if (success) {
+          setIsSuccess(true);
+          setTimeout(() => setIsSuccess(false), 4000);
+        }
+
+        return success;
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          console.log('Fetch aborted');
+          return false;
+        }
+
+        console.error('Error fetching video/transcript:', error);
+
+        let errorMessage = error.message || 'Failed to process video';
+        let errorTitle = 'Error';
+
+        // Provide user-friendly error messages
+        if (
+          error.message?.includes('No transcript available') ||
+          error.message?.includes('Transcripts are disabled')
+        ) {
+          errorTitle = 'No Transcript Available';
+          errorMessage =
+            'This video does not have captions/transcripts available. Please try a video that has captions enabled.';
+        } else if (
+          error.message?.includes('private') ||
+          error.message?.includes('unavailable')
+        ) {
+          errorTitle = 'Video Unavailable';
+          errorMessage =
+            'This video is private or unavailable. Please try a public video.';
+        }
+
+        toast({
+          title: errorTitle,
+          description: errorMessage,
+          variant: 'destructive'
+        });
+
+        setVideoDetails(null);
+        return false;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [videoUrl, toast, setVideoDetails, setIsLoading, setIsSuccess, generateQuiz]
+  );
+
+  return { fetchVideoAndTranscript };
+};
+```
+
+### How It Works
+
+**Step 1: Validation**
+- Checks if `videoUrl` exists
+- Shows error toast if empty
+- Returns `false` early to prevent API calls
+
+**Step 2: Initialize Loading**
+- Sets `isLoading` to `true` for UI skeleton
+- Clears previous `videoDetails` to `null`
+
+**Step 3: Fetch Video Details**
+- POSTs to `/api/videoDetail` with video URL
+- Passes `abortSignal` for cancellation support
+- Parses JSON response
+- Checks for HTTP errors and throws if failed
+- Updates store with video metadata via `setVideoDetails()`
+
+**Step 4: Fetch Transcript**
+- POSTs to `/api/transcribe` with video URL
+- Passes `abortSignal` for cancellation support
+- Parses JSON response
+- Validates response structure has `transcript.fullTranscript`
+- Throws error if transcript missing
+- Trims transcript whitespace
+
+**Step 5: Transcript Validation**
+- Checks transcript length is at least 50 characters
+- Throws error if too short for meaningful quiz
+- Prevents wasted AI generation on insufficient content
+
+**Step 6: Stop Loading, Start Generation**
+- Sets `isLoading` to `false` (video fetch complete)
+- Calls `generateQuiz(fullTranscript, abortSignal)`
+- `isGenerating` flag is set by generateQuiz hook
+
+**Step 7: Success Handling**
+- If quiz generation succeeds, sets `isSuccess` to `true`
+- Auto-resets `isSuccess` after 4 seconds using `setTimeout`
+- Returns success boolean
+
+**Step 8: Error Handling**
+- Catches abort errors silently (user cancellation)
+- Catches all other errors
+- Provides user-friendly error messages for common cases:
+  - **No Transcript Available**: Video has captions disabled
+  - **Video Unavailable**: Private or deleted video
+  - **Generic**: Other errors with original message
+- Shows error toast with appropriate title and description
+- Clears video details
+- Returns `false`
+
+**Step 9: Cleanup**
+- Always sets `isLoading` to `false` in finally block
+- Ensures loading state cleared regardless of success/failure
+
+---
+
+## useGenerateQuiz
+
+This hook handles AI quiz generation from transcript text. It sends the transcript to the API, parses the AI response (handling multiple formats), validates question structure, and updates the store with generated questions.
+
+### Implementation
+
+```typescript
+import { useCallback } from 'react';
+import { useToast } from '@/hooks/use-toast';
+import { useQuizStore, type QuizQuestion } from '../store/quiz-store';
+
+/**
+ * Improved JSON parser that handles various edge cases
+ */
+function parseQuizJSON(rawContent: string): QuizQuestion[] {
+  let cleanedContent = rawContent.trim();
+
+  // Check if content is empty
+  if (!cleanedContent) {
+    throw new Error('Empty response received from API');
+  }
+
+  // Remove markdown code blocks
+  cleanedContent = cleanedContent
+    .replace(/^```(?:json)?\s*/gm, '')
+    .replace(/\s*```$/gm, '');
+
+  // Try to find JSON array or object
+  const jsonMatch =
+    cleanedContent.match(/\[[\s\S]*\]/) || cleanedContent.match(/\{[\s\S]*\}/);
+
+  if (jsonMatch) {
+    cleanedContent = jsonMatch[0];
+  }
+
+  // Validate we have something to parse
+  if (!cleanedContent || cleanedContent.length < 2) {
+    throw new Error('No valid JSON content found in response');
+  }
+
+  try {
+    const parsed = JSON.parse(cleanedContent);
+
+    // Handle different response formats
+    let questions: any[] = [];
+
+    if (Array.isArray(parsed)) {
+      questions = parsed;
+    } else if (parsed.questions && Array.isArray(parsed.questions)) {
+      questions = parsed.questions;
+    } else if (parsed.quiz && Array.isArray(parsed.quiz)) {
+      questions = parsed.quiz;
+    } else {
+      throw new Error('Invalid quiz format: no questions array found');
+    }
+
+    // Validate and format questions
+    return questions.map((q: any, index: number) => {
+      if (!q.question || !Array.isArray(q.options)) {
+        throw new Error(`Invalid question format at index ${index}`);
+      }
+
+      // Ensure correctAnswer is a number
+      let correctAnswer = q.correctAnswer ?? q.correct_answer ?? q.answer;
+      if (typeof correctAnswer === 'string') {
+        // Handle letter answers (A, B, C, D)
+        const letter = correctAnswer.toUpperCase();
+        correctAnswer = letter.charCodeAt(0) - 65;
+      }
+      correctAnswer = Number(correctAnswer);
+
+      if (
+        isNaN(correctAnswer) ||
+        correctAnswer < 0 ||
+        correctAnswer >= q.options.length
+      ) {
+        throw new Error(`Invalid correct answer at index ${index}`);
+      }
+
+      return {
+        id: `q${index + 1}`,
+        question: q.question,
+        options: q.options,
+        correctAnswer,
+        explanation: q.explanation || q.reason || undefined
+      };
+    });
+  } catch (error) {
+    console.error('JSON Parse Error:', error);
+    console.error('Attempted to parse:', cleanedContent);
+    throw new Error(
+      `Failed to parse quiz: ${error instanceof Error ? error.message : 'Invalid JSON'}`
+    );
+  }
+}
+
+export const useGenerateQuiz = () => {
+  const { toast } = useToast();
+  const {
+    selectedLLM,
+    numQuestions,
+    setQuiz,
+    setUserAnswers,
+    setIsGenerating,
+    setIsSubmitted,
+    setScore
+  } = useQuizStore();
+
+  const generateQuiz = useCallback(
+    async (transcript: string, abortSignal?: AbortSignal) => {
+      setIsGenerating(true);
+      setQuiz([]);
+      setUserAnswers([]);
+      setIsSubmitted(false);
+      setScore(0);
+
+      try {
+        const response = await fetch('/api/quiz', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcript,
+            numQuestions: parseInt(numQuestions),
+            model: selectedLLM
+          }),
+          signal: abortSignal
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to generate quiz');
+        }
+
+        // Get the JSON response
+        const data = await response.json();
+        const quizText = data.text;
+
+        // Validate we received data
+        if (!quizText || quizText.trim().length === 0) {
+          console.error('No data received from API');
+          throw new Error('No data received from API. Please try again.');
+        }
+
+        console.log('Quiz text length:', quizText.length);
+        console.log('First 500 chars:', quizText.substring(0, 500));
+
+        // Parse the complete quiz
+        const parsedQuestions = parseQuizJSON(quizText);
+
+        if (parsedQuestions.length === 0) {
+          throw new Error('No valid questions generated');
+        }
+
+        setQuiz(parsedQuestions);
+        setUserAnswers(
+          parsedQuestions.map((q) => ({
+            questionId: q.id,
+            selectedOption: -1
+          }))
+        );
+
+        toast({
+          title: 'Success',
+          description: `Generated ${parsedQuestions.length} quiz questions`,
+          variant: 'default'
+        });
+
+        return true;
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          console.log('Quiz generation aborted');
+          toast({
+            title: 'Cancelled',
+            description: 'Quiz generation was cancelled',
+            variant: 'default'
+          });
+        } else {
+          console.error('Quiz generation error:', error);
+          toast({
+            title: 'Error',
+            description:
+              error.message || 'Failed to generate quiz. Please try again.',
+            variant: 'destructive'
+          });
+        }
+        return false;
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [
+      selectedLLM,
+      numQuestions,
+      toast,
+      setQuiz,
+      setUserAnswers,
+      setIsGenerating,
+      setIsSubmitted,
+      setScore
+    ]
+  );
+
+  return { generateQuiz };
+};
+```
+
+### How It Works
+
+**generateQuiz(transcript, abortSignal)**
+
+**Step 1: Initialize State**
+- Sets `isGenerating` to `true` for loading skeleton
+- Clears previous quiz questions
+- Clears previous user answers
+- Resets `isSubmitted` to `false`
+- Resets `score` to `0`
+
+**Step 2: API Request**
+- POSTs to `/api/quiz` with:
+  - `transcript`: Full transcript text
+  - `numQuestions`: Parsed integer from store
+  - `model`: Selected AI model (e.g., 'gemini-2.5-flash')
+- Includes `abortSignal` for cancellation
+- Checks HTTP response status
+
+**Step 3: Response Validation**
+- Parses JSON response to get `data.text`
+- Validates `quizText` is not empty
+- Logs text length and first 500 characters for debugging
+
+**Step 4: Parse Quiz JSON**
+- Calls `parseQuizJSON(quizText)` helper function
+- Validates parsed questions array is not empty
+- Throws error if no valid questions generated
+
+**Step 5: Update Store**
+- Sets `quiz` with parsed questions array
+- Initializes `userAnswers` with one entry per question:
+  - `questionId`: Question ID
+  - `selectedOption`: -1 (unanswered)
+
+**Step 6: Success Feedback**
+- Shows success toast with question count
+- Returns `true`
+
+**Step 7: Error Handling**
+- Catches abort errors (user cancellation) - shows info toast
+- Catches generation errors - shows error toast with message
+- Returns `false` on error
+
+**Step 8: Cleanup**
+- Always sets `isGenerating` to `false` in finally block
+
+**parseQuizJSON(rawContent)**
+
+This helper function handles robust parsing of AI responses:
+
+**Step 1: Trim and Validate**
+- Trims whitespace
+- Throws error if empty
+
+**Step 2: Remove Markdown**
+- Removes markdown code block syntax: ` ```json ` and ` ``` `
+- Handles both with and without language specifier
+
+**Step 3: Extract JSON**
+- Uses regex to find JSON array `[...]` or object `{...}`
+- Takes first match as the JSON content
+
+**Step 4: Validate Content**
+- Checks cleaned content has at least 2 characters
+- Throws error if no valid JSON found
+
+**Step 5: Parse JSON**
+- Parses cleaned content with `JSON.parse()`
+- Wrapped in try-catch for parse errors
+
+**Step 6: Extract Questions Array**
+- Handles three response formats:
+  1. Direct array: `[{question...}, ...]`
+  2. Object with `questions`: `{questions: [...]}`
+  3. Object with `quiz`: `{quiz: [...]}`
+- Throws error if no questions array found
+
+**Step 7: Validate and Format Each Question**
+- Maps over questions array
+- Validates each question has `question` property and `options` array
+- Extracts correct answer from multiple possible keys:
+  - `correctAnswer`, `correct_answer`, or `answer`
+- Handles string answers (A, B, C, D):
+  - Converts to uppercase
+  - Gets char code and subtracts 65 to get index (A=0, B=1, C=2, D=3)
+- Converts to number
+- Validates correct answer is valid index (0-3)
+- Returns formatted question object:
+  - `id`: Generated as `q1`, `q2`, etc.
+  - `question`: Question text
+  - `options`: Array of options
+  - `correctAnswer`: Validated index
+  - `explanation`: Optional explanation from `explanation` or `reason` key
+
+**Step 8: Error Logging**
+- Logs parse errors to console
+- Logs attempted content for debugging
+- Throws descriptive error message
+
+---
+
+## useFetchUsage
+
+This hook fetches and tracks API usage information for the quiz feature. It runs once on mount to display usage limits to the user.
+
+### Implementation
+
+```typescript
+import { useCallback, useEffect } from 'react';
+import { useQuizStore } from '../store/quiz-store';
+
+export const useFetchUsage = () => {
+  const { setUsage } = useQuizStore();
+
+  const fetchUsage = useCallback(async () => {
+    try {
+      const response = await fetch('/api/usage');
+      if (response.ok) {
+        const data = await response.json();
+        setUsage(data.quiz);
+      }
+    } catch (error) {
+      console.error('Failed to fetch usage:', error);
+    }
+  }, [setUsage]);
+
+  // Fetch usage on mount
+  useEffect(() => {
+    fetchUsage();
+  }, [fetchUsage]);
+
+  return { fetchUsage };
+};
+```
+
+### How It Works
+
+**fetchUsage()**
+- Makes GET request to `/api/usage`
+- Checks response is OK (200-299)
+- Parses JSON response
+- Updates store with `data.quiz` object containing:
+  - `limit`: Total allowed requests
+  - `remaining`: Requests remaining
+  - `reset`: Unix timestamp when limit resets
+  - `used`: Number of requests used
+- Catches and logs errors silently (non-critical)
+
+**useEffect**
+- Calls `fetchUsage()` once on component mount
+- Dependency array includes `fetchUsage` (stable with useCallback)
+
+**Usage**: This hook is typically called in the main quiz component to display usage information to the user, helping them track their API quota.
+
+---
+
+## Hook Dependencies
+
+The hooks are designed to work together:
+
+1. **useFetchVideoAndTranscript** depends on **useGenerateQuiz**
+   - Calls `generateQuiz()` after fetching transcript
+   - Passes transcript text and abort signal
+
+2. **useGenerateQuiz** is standalone
+   - Can be called independently with transcript text
+   - Returns boolean success indicator
+
+3. **useFetchUsage** is independent
+   - Runs on mount
+   - Can be called manually to refresh usage
+
+This separation allows for flexible usage and testing while maintaining clear responsibilities for each hook.

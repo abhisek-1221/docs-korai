@@ -1,0 +1,520 @@
+---
+title: YouTube URL Validation
+description: Comprehensive guide to YouTube URL validation utilities
+---
+
+## Overview
+
+The YouTube URL validation module (`/src/lib/youtube-validator.ts`) provides robust utilities for validating and parsing various YouTube URL formats. It helps ensure that user-provided URLs are valid before making API calls.
+
+## Type Definitions
+
+### YoutubeValidationResult
+
+```typescript
+export interface YoutubeValidationResult {
+  isValid: boolean;
+  type: 'video' | 'playlist' | 'invalid';
+  videoId?: string;
+  playlistId?: string;
+  error?: string;
+}
+```
+
+**Properties:**
+- `isValid`: Whether the URL is a valid YouTube URL
+- `type`: The type of content ('video', 'playlist', or 'invalid')
+- `videoId`: Extracted video ID (if type is 'video')
+- `playlistId`: Extracted playlist ID (if applicable)
+- `error`: Error message explaining why validation failed
+
+---
+
+## Core Validation Functions
+
+### validateYoutubeUrl
+
+Main validation function that handles all YouTube URL formats.
+
+```typescript
+export function validateYoutubeUrl(url: string): YoutubeValidationResult
+```
+
+**Supported Video URL Formats:**
+- `https://www.youtube.com/watch?v=VIDEO_ID`
+- `https://www.youtube.com/watch?v=VIDEO_ID&list=PLAYLIST_ID`
+- `https://youtu.be/VIDEO_ID`
+- `https://www.youtube.com/embed/VIDEO_ID`
+- `https://www.youtube.com/v/VIDEO_ID`
+- `https://m.youtube.com/watch?v=VIDEO_ID`
+
+**Supported Playlist URL Formats:**
+- `https://www.youtube.com/playlist?list=PLAYLIST_ID`
+- `https://www.youtube.com/watch?v=VIDEO_ID&list=PLAYLIST_ID` (prioritizes video)
+
+**Example Usage:**
+
+```typescript
+import { validateYoutubeUrl } from '@/lib/youtube-validator';
+
+// Valid video URL
+const result1 = validateYoutubeUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+console.log(result1);
+// {
+//   isValid: true,
+//   type: 'video',
+//   videoId: 'dQw4w9WgXcQ'
+// }
+
+// Valid playlist URL
+const result2 = validateYoutubeUrl(
+  'https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf'
+);
+console.log(result2);
+// {
+//   isValid: true,
+//   type: 'playlist',
+//   playlistId: 'PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf'
+// }
+
+// Video with playlist (video takes precedence)
+const result3 = validateYoutubeUrl(
+  'https://www.youtube.com/watch?v=abc123&list=PLxyz'
+);
+console.log(result3);
+// {
+//   isValid: true,
+//   type: 'video',
+//   videoId: 'abc123',
+//   playlistId: 'PLxyz'
+// }
+
+// Invalid URL
+const result4 = validateYoutubeUrl('https://vimeo.com/12345');
+console.log(result4);
+// {
+//   isValid: false,
+//   type: 'invalid',
+//   error: 'URL must be from YouTube (youtube.com or youtu.be)'
+// }
+
+// Malformed URL
+const result5 = validateYoutubeUrl('not a url');
+console.log(result5);
+// {
+//   isValid: false,
+//   type: 'invalid',
+//   error: 'Invalid URL format'
+// }
+```
+
+**Validation Process:**
+
+1. **Input Validation**: Checks if input is a non-empty string
+2. **URL Parsing**: Attempts to parse as URL using `URL` constructor
+3. **Domain Validation**: Verifies the domain is a YouTube domain
+4. **ID Extraction**: Extracts video and/or playlist IDs based on URL structure
+5. **Type Determination**: Returns appropriate type based on extracted IDs
+
+---
+
+### validateYoutubeVideoUrl
+
+Validates that a URL is specifically a video URL (not a playlist).
+
+```typescript
+export function validateYoutubeVideoUrl(url: string): YoutubeValidationResult
+```
+
+**Use Case:** Use this when you specifically need a single video URL and want to reject playlist URLs.
+
+**Example:**
+
+```typescript
+import { validateYoutubeVideoUrl } from '@/lib/youtube-validator';
+
+// Valid video - OK
+const result1 = validateYoutubeVideoUrl(
+  'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+);
+console.log(result1);
+// {
+//   isValid: true,
+//   type: 'video',
+//   videoId: 'dQw4w9WgXcQ'
+// }
+
+// Playlist URL - Rejected
+const result2 = validateYoutubeVideoUrl(
+  'https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf'
+);
+console.log(result2);
+// {
+//   isValid: false,
+//   type: 'invalid',
+//   error: 'Please provide a YouTube video URL, not a playlist URL'
+// }
+
+// Short URL - OK
+const result3 = validateYoutubeVideoUrl('https://youtu.be/abc123');
+console.log(result3);
+// {
+//   isValid: true,
+//   type: 'video',
+//   videoId: 'abc123'
+// }
+```
+
+**Common Use Cases:**
+- Transcript extraction (requires single video)
+- Video analysis features
+- Single video upload forms
+- AI chat features with specific videos
+
+---
+
+### validateYoutubePlaylistUrl
+
+Validates that a URL is specifically a playlist URL (not a single video).
+
+```typescript
+export function validateYoutubePlaylistUrl(
+  url: string
+): YoutubeValidationResult
+```
+
+**Use Case:** Use this when you specifically need a playlist URL and want to reject single video URLs.
+
+**Example:**
+
+```typescript
+import { validateYoutubePlaylistUrl } from '@/lib/youtube-validator';
+
+// Valid playlist - OK
+const result1 = validateYoutubePlaylistUrl(
+  'https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf'
+);
+console.log(result1);
+// {
+//   isValid: true,
+//   type: 'playlist',
+//   playlistId: 'PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf'
+// }
+
+// Video URL - Rejected
+const result2 = validateYoutubePlaylistUrl(
+  'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+);
+console.log(result2);
+// {
+//   isValid: false,
+//   type: 'invalid',
+//   error: 'Please provide a YouTube playlist URL, not a single video URL'
+// }
+
+// Video with playlist parameter - OK (has playlist)
+const result3 = validateYoutubePlaylistUrl(
+  'https://www.youtube.com/watch?v=abc123&list=PLxyz'
+);
+console.log(result3);
+// {
+//   isValid: true,
+//   type: 'video',
+//   videoId: 'abc123',
+//   playlistId: 'PLxyz'
+// }
+```
+
+**Common Use Cases:**
+- Playlist analysis features
+- Batch video processing
+- Course content management
+- Video series organization
+
+---
+
+## Validation Error Messages
+
+The validator provides clear, user-friendly error messages:
+
+| Error Message | Cause |
+|--------------|-------|
+| `"Please enter a valid URL"` | Empty, null, or non-string input |
+| `"Invalid URL format"` | String is not a valid URL structure |
+| `"URL must be from YouTube (youtube.com or youtu.be)"` | URL is from a different domain |
+| `"Could not extract video or playlist ID from URL"` | YouTube URL but no valid IDs found |
+| `"Please provide a YouTube video URL, not a playlist URL"` | Playlist given when video expected |
+| `"Please provide a YouTube playlist URL, not a single video URL"` | Video given when playlist expected |
+
+---
+
+## Integration Examples
+
+### Form Validation
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { validateYoutubeVideoUrl } from '@/lib/youtube-validator';
+
+export function VideoUrlForm() {
+  const [url, setUrl] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate URL
+    const validation = validateYoutubeVideoUrl(url);
+    
+    if (!validation.isValid) {
+      setError(validation.error || 'Invalid URL');
+      return;
+    }
+    
+    // URL is valid, proceed with video ID
+    console.log('Processing video:', validation.videoId);
+    // ... API call
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        type="text"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="Enter YouTube video URL"
+      />
+      {error && <p className="error">{error}</p>}
+      <button type="submit">Submit</button>
+    </form>
+  );
+}
+```
+
+---
+
+### API Route Validation
+
+```typescript
+import { NextResponse } from 'next/server';
+import { validateYoutubeVideoUrl } from '@/lib/youtube-validator';
+import { fetchVideoData } from '@/lib/ythelper';
+
+export async function POST(request: Request) {
+  try {
+    const { videoUrl } = await request.json();
+
+    // Validate URL
+    const validation = validateYoutubeVideoUrl(videoUrl);
+    
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { error: validation.error },
+        { status: 400 }
+      );
+    }
+
+    // Extract video ID and fetch data
+    const videoData = await fetchVideoData(validation.videoId!);
+    
+    return NextResponse.json({ video: videoData });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+---
+
+### Server Action with Validation
+
+```typescript
+'use server';
+
+import { validateYoutubePlaylistUrl } from '@/lib/youtube-validator';
+import { 
+  fetchPlaylistDetails, 
+  fetchPlaylistVideoIds,
+  fetchVideoDetails 
+} from '@/lib/ythelper';
+
+export async function analyzePlaylist(playlistUrl: string) {
+  // Validate playlist URL
+  const validation = validateYoutubePlaylistUrl(playlistUrl);
+  
+  if (!validation.isValid) {
+    return {
+      success: false,
+      error: validation.error
+    };
+  }
+
+  try {
+    // Fetch playlist data
+    const playlistDetails = await fetchPlaylistDetails(validation.playlistId!);
+    const videoIds = await fetchPlaylistVideoIds(validation.playlistId!);
+    const { videos, totalDuration } = await fetchVideoDetails(videoIds);
+
+    return {
+      success: true,
+      data: {
+        playlist: playlistDetails,
+        videos,
+        totalDuration,
+        videoCount: videos.length
+      }
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to analyze playlist'
+    };
+  }
+}
+```
+
+---
+
+### React Hook for Validation
+
+```typescript
+import { useState, useCallback } from 'react';
+import { validateYoutubeUrl, YoutubeValidationResult } from '@/lib/youtube-validator';
+
+export function useYoutubeUrlValidation() {
+  const [validation, setValidation] = useState<YoutubeValidationResult | null>(null);
+
+  const validate = useCallback((url: string) => {
+    const result = validateYoutubeUrl(url);
+    setValidation(result);
+    return result;
+  }, []);
+
+  const reset = useCallback(() => {
+    setValidation(null);
+  }, []);
+
+  return {
+    validation,
+    validate,
+    reset,
+    isValid: validation?.isValid ?? false,
+    error: validation?.error,
+    videoId: validation?.videoId,
+    playlistId: validation?.playlistId,
+    type: validation?.type
+  };
+}
+
+// Usage in component
+function VideoForm() {
+  const [url, setUrl] = useState('');
+  const { validate, isValid, error, videoId } = useYoutubeUrlValidation();
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newUrl = e.target.value;
+    setUrl(newUrl);
+    
+    // Validate on change
+    if (newUrl) {
+      validate(newUrl);
+    }
+  };
+
+  return (
+    <div>
+      <input 
+        type="text" 
+        value={url} 
+        onChange={handleChange}
+        className={error ? 'error' : ''}
+      />
+      {error && <span className="error-message">{error}</span>}
+      {isValid && <span className="success">✓ Valid video ID: {videoId}</span>}
+    </div>
+  );
+}
+```
+
+---
+
+## URL Format Reference
+
+### Standard Watch URL
+```
+https://www.youtube.com/watch?v=VIDEO_ID
+https://www.youtube.com/watch?v=VIDEO_ID&t=30s
+https://www.youtube.com/watch?v=VIDEO_ID&list=PLAYLIST_ID
+```
+
+### Short URL
+```
+https://youtu.be/VIDEO_ID
+https://youtu.be/VIDEO_ID?t=30
+```
+
+### Embed URL
+```
+https://www.youtube.com/embed/VIDEO_ID
+https://www.youtube.com/embed/VIDEO_ID?start=30
+```
+
+### Video URL
+```
+https://www.youtube.com/v/VIDEO_ID
+```
+
+### Mobile URL
+```
+https://m.youtube.com/watch?v=VIDEO_ID
+```
+
+### Playlist URL
+```
+https://www.youtube.com/playlist?list=PLAYLIST_ID
+```
+
+---
+
+## Testing Examples
+
+```typescript
+import { 
+  validateYoutubeUrl, 
+  validateYoutubeVideoUrl,
+  validateYoutubePlaylistUrl 
+} from '@/lib/youtube-validator';
+
+// Test cases
+const testCases = [
+  // Valid videos
+  { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', expected: 'video' },
+  { url: 'https://youtu.be/dQw4w9WgXcQ', expected: 'video' },
+  { url: 'https://www.youtube.com/embed/dQw4w9WgXcQ', expected: 'video' },
+  
+  // Valid playlists
+  { url: 'https://www.youtube.com/playlist?list=PLrAXtmErZgOe', expected: 'playlist' },
+  
+  // Invalid URLs
+  { url: 'https://vimeo.com/12345', expected: 'invalid' },
+  { url: 'not a url', expected: 'invalid' },
+  { url: '', expected: 'invalid' },
+  { url: 'https://www.youtube.com/channel/UCabc123', expected: 'invalid' },
+];
+
+testCases.forEach(({ url, expected }) => {
+  const result = validateYoutubeUrl(url);
+  console.log(`URL: ${url}`);
+  console.log(`Expected: ${expected}, Got: ${result.type}`);
+  console.log(`Valid: ${result.isValid}`);
+  console.log('---');
+});
+```
+
+---
+

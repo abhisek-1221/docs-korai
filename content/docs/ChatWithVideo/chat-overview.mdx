@@ -1,0 +1,156 @@
+---
+title: Chat with Video - Overview
+description: AI-powered conversational interface for YouTube videos using Vercel AI SDK
+---
+
+## Overview
+
+The Chat with Video feature enables users to have AI-powered conversations about YouTube video content. It uses the Vercel AI SDK to create a seamless, real-time streaming chat experience where users can ask questions, get summaries, and extract insights from video transcripts.
+
+## Key Features
+
+- **Real-time Streaming**: Uses Vercel AI SDK's `useChat` hook for streaming responses
+- **Transcript-based Context**: AI uses video transcript as context for accurate answers
+- **Multi-model Support**: Switch between Llama 3.1 70B and Llama 4 Maverick models
+- **Web Search Integration**: Optional web search using Perplexity's Sonar model
+- **X Thread Generation**: Convert video content into viral Twitter threads
+- **Suggestion System**: Pre-built prompts for summary, comprehension, and reflection
+- **MCP Integration**: Connect external apps via Model Context Protocol
+- **Rate Limiting**: User-specific rate limits (30 chats per day)
+
+## Architecture
+
+### Component Flow
+
+1. **Video Input**: User enters YouTube URL
+2. **Transcript Fetching**: System retrieves video transcript via `/api/transcribe`
+3. **Chat Interface**: AI-powered chat using Vercel AI SDK
+4. **Message Streaming**: Real-time responses from AI models
+5. **Thread Generation**: Optional X/Twitter thread creation
+
+### Technology Stack
+
+- **Vercel AI SDK**: `@ai-sdk/react` for `useChat` hook and streaming
+- **AI Models**: Cerebras (Llama), Google (Gemini), Perplexity (Web Search)
+- **State Management**: Zustand for video and chat state
+- **API Routes**: Next.js API routes with streaming support
+- **UI Components**: Custom AI elements (Conversation, Message, Response)
+
+## Core Components
+
+### Main Page Component
+- **File**: `src/features/chat/components/video-chat-page.tsx`
+- Renders the chat interface with streaming messages
+- Handles video URL input and transcript loading
+- Manages model selection and web search toggle
+
+### Store
+- **File**: `src/features/chat/store/video-chat-store.ts`
+- Manages video URL, transcript, threads, and UI state
+- Provides actions for state updates
+
+### Hooks
+- **useVideoTranscript**: Fetches transcript from `/api/transcribe`
+- **useGenerateVideoThreads**: Generates Twitter threads from video content
+
+### API Route
+- **File**: `src/app/api/chat/route.ts`
+- Handles streaming chat requests
+- Integrates with AI providers (Cerebras, Google, Perplexity)
+- Implements rate limiting per user
+
+## User Flow
+
+### 1. Video Loading
+```
+User enters YouTube URL → Validate URL → Extract video ID → 
+Fetch transcript → Display chat interface
+```
+
+### 2. Chat Interaction
+```
+User types message → Send to /api/chat → Stream AI response → 
+Display message with actions (copy, etc.)
+```
+
+### 3. Thread Generation
+```
+User clicks "Thread" → Generate prompt from transcript → 
+Send to AI → Parse numbered posts → Display in modal → 
+Copy or share to X
+```
+
+## Integration Points
+
+### Vercel AI SDK
+The feature uses Vercel AI SDK's `useChat` hook for seamless streaming:
+
+```tsx
+const { messages, sendMessage, status } = useChat();
+```
+
+### AI Providers
+Multiple providers configured in `src/lib/providers.ts`:
+- **Cerebras**: Fast inference for Llama models
+- **Google**: Gemini models for general chat
+- **Perplexity**: Sonar model for web search
+
+### Rate Limiting
+User-specific rate limiting via Upstash Redis:
+- **Limit**: 30 chat attempts per day per user
+- **Identifier**: `chat_{userId}`
+- **Headers**: Returns remaining attempts in response
+
+## Message Format
+
+### User Message
+```json
+{
+  "text": "What is the main topic?",
+  "files": [] // Optional attachments
+}
+```
+
+### AI Message
+```json
+{
+  "id": "msg-123",
+  "role": "assistant",
+  "parts": [
+    { "type": "text", "text": "The main topic is..." },
+    { "type": "reasoning", "text": "I analyzed..." },
+    { "type": "source-url", "url": "https://..." }
+  ]
+}
+```
+
+## Features in Detail
+
+### Suggestion Groups
+Pre-built prompts organized into categories:
+- **Summary**: Quick overviews and main points
+- **Comprehension**: Topic analysis and key takeaways
+- **Reflect**: Emotional tone and impact
+
+### Web Search Mode
+When enabled, uses Perplexity's Sonar model for real-time web information:
+```typescript
+const result = streamText({
+  model: webSearch ? 'perplexity/sonar' : selectedModel,
+  // ...
+});
+```
+
+### Thread Generation
+Separate `useChat` instance for thread generation:
+- Uses unique ID: `'thread-generation'`
+- Generates 6-12 numbered posts (200-250 chars each)
+- Adds video thumbnail to first post
+- Formats for X/Twitter sharing
+
+## Related Documentation
+
+- [Chat Store](/docs/ChatWithVideo/chat-store)
+- [Chat Hooks](/docs/ChatWithVideo/chat-hooks)
+- [Chat API Route](/docs/ChatWithVideo/chat-api-route)
+- [Chat Component](/docs/ChatWithVideo/chat-component)

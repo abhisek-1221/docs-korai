@@ -1,0 +1,472 @@
+---
+title: Viral Shorts Overview
+description: AI-powered viral clip identification and short video generation
+---
+
+# Viral Shorts Generation Feature
+
+The Viral Shorts Generation feature uses AI to automatically identify viral-worthy moments from YouTube videos and exports them as ready-to-publish short-form content with subtitles and custom styling.
+
+## Architecture
+
+The feature consists of two main workflows:
+
+1. **Identify Clips**: Analyzes YouTube videos to find viral moments
+2. **Process Clips**: Exports selected clips with subtitles, translations, and aspect ratio adjustments
+
+## Data Flow
+
+```
+YouTube URL Submission
+    ↓
+Inngest: identifyClips Function
+    ├─ Download video from YouTube
+    ├─ Create video record in database
+    ├─ Call external clips identification API
+    ├─ Save identified clips to database
+    ↓
+User Reviews Clips
+    ├─ Views virality scores, summaries, timestamps
+    ├─ Selects clips for export
+    ├─ Configures aspect ratio & language
+    ↓
+Inngest: processClips Function
+    ├─ Download original video from S3
+    ├─ Extract and process selected clips
+    ├─ Add subtitles with customization
+    ├─ Translate if target language specified
+    ├─ Export to S3
+    ├─ Save exported clips to database
+    ↓
+User Downloads/Views Exported Clips
+```
+
+## Database Schema
+
+### Video Model
+```prisma
+model Video {
+  id               String    @id @default(uuid())
+  userId           String
+  youtubeUrl       String
+  s3Key            String
+  prompt           String?
+  totalClips       Int?
+  videoDuration    String?
+  detectedLanguage String?
+  s3Path           String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  
+  clips         Clip[]
+  exportedClips ExportedClip[]
+}
+```
+
+### Clip Model (Identified Clips)
+```prisma
+model Clip {
+  id            String   @id @default(uuid())
+  videoId       String
+  start         String
+  end           String
+  title         String
+  summary       String
+  viralityScore String
+  relatedTopics String[]
+  transcript    String
+  createdAt     DateTime @default(now())
+  
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+}
+```
+
+### ExportedClip Model (Processed Clips)
+```prisma
+model ExportedClip {
+  id             String   @id @default(uuid())
+  videoId        String
+  start          String
+  end            String
+  s3Key          String
+  aspectRatio    String
+  targetLanguage String?
+  createdAt      DateTime @default(now())
+  
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+}
+```
+
+## Key Features
+
+### AI Clip Identification
+- Analyzes entire video for viral moments
+- Assigns virality scores (0-10)
+- Generates titles and summaries for each clip
+- Extracts related topics/hashtags
+- Provides exact timestamps and transcripts
+
+### Customizable Export
+- **Aspect Ratios**: 1:1 (Square), 16:9 (Landscape), 9:16 (Portrait/Stories)
+- **Target Languages**: Optional translation to 8+ languages
+- **Subtitle Styling**: Customizable fonts, colors, positioning, animations
+- **Karaoke Effect**: Word-by-word highlighting synchronized with audio
+
+### Batch Processing
+- Select multiple clips for simultaneous export
+- Background processing via Inngest
+- Progress tracking and notifications
+- S3 storage with signed URL downloads
+
+## User Flow
+
+### Step 1: Submit Video
+1. User enters YouTube URL
+2. Optional: Adds custom prompt to guide AI (e.g., "Focus on funny moments")
+3. Clicks "Identify Viral Clips"
+4. API route triggers Inngest function
+5. User redirected to Videos list
+
+### Step 2: Processing (Background)
+1. Inngest downloads video from YouTube
+2. Creates video record in database
+3. Calls external AI API for clip identification
+4. Saves clips with metadata to database
+5. Video status updates (processing → complete)
+
+### Step 3: Review Clips
+1. User opens video detail page
+2. Views list of identified clips (sorted by virality score)
+3. Clicks clip to preview in YouTube player
+4. Reviews: title, summary, virality score, topics, transcript
+5. Selects clips for export using checkboxes
+
+### Step 4: Configure Export
+1. Clicks "Generate Shorts" button
+2. Modal opens with configuration options:
+   - **Aspect Ratio**: Choose output format
+   - **Target Language**: Optional translation
+3. Subtitles automatically applied with default styling
+4. Clicks "Generate Clips"
+
+### Step 5: Export Processing (Background)
+1. Inngest function starts processing
+2. Downloads original video from S3
+3. Extracts selected clip segments
+4. Burns subtitles with styling
+5. Translates if target language specified
+6. Uploads processed clips to S3
+7. Saves exported clip records
+
+### Step 6: Download Clips
+1. User switches to "Exported" tab
+2. Views list of processed clips
+3. Clicks clip to preview in video player
+4. Clicks "Download Clip" to get signed URL
+5. Video downloads or opens in new tab
+
+## TypeScript Interfaces
+
+```typescript
+// Identified clip data from AI
+interface ClipData {
+  start: number;
+  end: number;
+  title: string;
+  summary: string;
+  virality_score: number;
+  related_topics: string[];
+  transcript: string;
+}
+
+// API response for clip identification
+interface IdentifyClipsResponse {
+  identified_clips: ClipData[];
+  total_clips: string | number;
+  video_duration: number;
+  detected_language: string;
+  s3_path: string;
+}
+
+// Clip for processing
+interface ProcessClipData {
+  start: number;
+  end: number;
+}
+
+// Subtitle customization config
+interface SubtitleCustomization {
+  enabled: boolean;
+  position: 'middle' | 'top' | 'bottom';
+  font_size: number;
+  font_family: string;
+  font_color: string;
+  outline_color: string;
+  outline_width: number;
+  background_color: string | null;
+  background_opacity: number;
+  shadow_enabled: boolean;
+  shadow_color: string;
+  shadow_offset: number;
+  max_words_per_line: number;
+  margin_horizontal: number;
+  margin_vertical: number;
+  fade_in_duration: number;
+  fade_out_duration: number;
+  karaoke_enabled: boolean;
+  karaoke_highlight_color: string;
+  karaoke_popup_scale: number;
+}
+
+// Payload for clip processing
+interface ProcessClipsPayload {
+  s3_key: string;
+  clips: ProcessClipData[];
+  prompt: string;
+  target_language: string | null;
+  aspect_ratio: string;
+  subtitles: boolean;
+  subtitle_customization: SubtitleCustomization;
+}
+
+// Processed clip response
+interface ProcessedClipResponse {
+  start: number;
+  end: number;
+  s3_key: string;
+}
+
+// API response for processed clips
+interface ProcessClipsResponse {
+  processed_clips: ProcessedClipResponse[];
+}
+```
+
+## API Endpoints
+
+### POST /api/clips/identify
+Triggers background job to identify viral clips.
+
+**Input**:
+```json
+{
+  "youtubeUrl": "https://youtube.com/watch?v=abc",
+  "prompt": "Focus on emotional moments"
+}
+```
+
+**Output**:
+```json
+{
+  "success": true,
+  "message": "Video processing started"
+}
+```
+
+### POST /api/clips/process
+Triggers background job to export clips.
+
+**Input**:
+```json
+{
+  "videoId": "uuid",
+  "s3Key": "youtube-videos/uuid/yt",
+  "selectedClips": [
+    { "start": "10.5", "end": "25.3" },
+    { "start": "45.2", "end": "67.8" }
+  ],
+  "targetLanguage": "es",
+  "aspectRatio": "9:16"
+}
+```
+
+**Output**:
+```json
+{
+  "success": true,
+  "message": "Clip processing started"
+}
+```
+
+### GET /api/clips/videos
+Lists all videos for authenticated user.
+
+**Output**:
+```json
+{
+  "videos": [
+    {
+      "id": "uuid",
+      "youtubeUrl": "https://youtube.com/...",
+      "totalClips": 8,
+      "videoDuration": "10:45",
+      "detectedLanguage": "en",
+      "createdAt": "2025-10-06T..."
+    }
+  ]
+}
+```
+
+### GET /api/clips/videos/[id]
+Gets video details with all clips.
+
+**Output**:
+```json
+{
+  "video": {
+    "id": "uuid",
+    "youtubeUrl": "https://youtube.com/...",
+    "totalClips": 8,
+    "clips": [
+      {
+        "id": "uuid",
+        "start": "10.5",
+        "end": "25.3",
+        "title": "Epic Moment",
+        "summary": "An amazing reaction to...",
+        "viralityScore": "8.5",
+        "relatedTopics": ["gaming", "reaction"],
+        "transcript": "Wow this is incredible..."
+      }
+    ]
+  }
+}
+```
+
+### GET /api/clips/videos/[id]/exported
+Gets exported clips for a video.
+
+**Output**:
+```json
+{
+  "exportedClips": [
+    {
+      "id": "uuid",
+      "start": "10.5",
+      "end": "25.3",
+      "s3Key": "processed-clips/uuid/clip-1.mp4",
+      "aspectRatio": "9:16",
+      "targetLanguage": "es",
+      "createdAt": "2025-10-06T..."
+    }
+  ]
+}
+```
+
+### POST /api/clips/videos/[id]/download
+Generates signed URL for clip download.
+
+**Input**:
+```json
+{
+  "s3Key": "processed-clips/uuid/clip-1.mp4"
+}
+```
+
+**Output**:
+```json
+{
+  "url": "https://s3.amazonaws.com/signed-url-with-token"
+}
+```
+
+### DELETE /api/clips/videos/[id]
+Deletes video and all associated clips (cascade).
+
+**Output**:
+```json
+{
+  "success": true,
+  "message": "Video deleted successfully"
+}
+```
+
+## Subtitle Customization
+
+The default subtitle configuration provides TikTok/Instagram Reels style captions:
+
+```typescript
+{
+  enabled: true,
+  position: 'middle',              // Center of screen
+  font_size: 120,                  // Large, bold text
+  font_family: 'Anton',            // Impact-style font
+  font_color: '#FFFFFF',           // White text
+  outline_color: '#000000',        // Black outline
+  outline_width: 2.5,              // Thick outline for contrast
+  background_color: null,          // No background box
+  background_opacity: 0.0,
+  shadow_enabled: true,            // Drop shadow for depth
+  shadow_color: '#808080',
+  shadow_offset: 3.0,
+  max_words_per_line: 3,           // Short phrases
+  margin_horizontal: 60,           // Padding from edges
+  margin_vertical: 180,
+  fade_in_duration: 0,             // Instant appearance
+  fade_out_duration: 0,
+  karaoke_enabled: true,           // Word highlighting
+  karaoke_highlight_color: '#0DE050',  // Green highlight
+  karaoke_popup_scale: 1.25        // Pop effect on active word
+}
+```
+
+**Visual Result**: Bold white text with black outline, centered on screen, with words highlighting in green as they're spoken, creating an engaging TikTok-style effect.
+
+## Supported Languages
+
+**Translation Options**:
+- English (en)
+- Spanish (es)
+- French (fr)
+- German (de)
+- Hindi (hi)
+- Japanese (ja)
+- Korean (ko)
+- Original (none)
+
+## Performance Metrics
+
+**Identification Phase**:
+- Processing time: 2-5 minutes for 10-minute video
+- Clips found: Typically 5-15 viral moments
+- API calls: 1 external API request
+
+**Export Phase**:
+- Processing time: 30-60 seconds per clip
+- Batch processing: All selected clips processed in parallel
+- Storage: ~5-20MB per exported clip (varies by length and quality)
+
+## Error Handling
+
+**Common Errors**:
+- **Invalid YouTube URL**: Caught by validation, shows error toast
+- **No transcript available**: Video must have captions/subtitles
+- **Processing timeout**: Retry mechanism in Inngest
+- **S3 upload failure**: Error logged, job retries automatically
+- **API rate limits**: Handled by external API, queued for retry
+
+## Security & Access Control
+
+**Authentication**: All routes protected by Clerk auth
+
+**Authorization**: Users can only access their own videos
+
+**S3 Access**: Signed URLs with 1-hour expiration
+
+**Cascade Delete**: Deleting video removes all clips (database foreign keys)
+
+## Cost Optimization
+
+**S3 Storage**:
+- Original videos stored temporarily during processing
+- Exported clips stored long-term
+- Use lifecycle policies to archive old clips
+
+**API Usage**:
+- Identification API charged per video
+- Processing API charged per clip
+- Consider batching small clips to reduce API calls
+
+**Database**:
+- Indexes on `userId` and `videoId` for fast queries
+- Cascade deletes prevent orphaned records

@@ -1,0 +1,112 @@
+---
+title: Generate Transcript - Overview
+description: Complete overview of the video transcript generation feature
+---
+
+# Generate Transcript Feature Overview
+
+The Generate Transcript feature allows users to extract transcripts from YouTube videos with timestamps, search functionality, and download capabilities. This feature integrates YouTube's video player, transcript fetching, and multiple export formats.
+
+## Architecture
+
+The feature is organized into four main components:
+
+### 1. **Store** (`transcribe-store.ts`)
+Zustand store managing global state for the transcript feature including video details, transcript data, player instance, and UI states.
+
+### 2. **Hooks**
+- `use-fetch-transcript.ts` - Fetches video details and transcript data from API
+- `use-youtube-player.ts` - Manages YouTube IFrame API integration and player controls
+- `use-transcript-download.ts` - Handles transcript downloads in multiple formats
+
+### 3. **Component** (`transcribe-view-page.tsx`)
+Main UI component that renders the transcript interface with video player, search, and download options.
+
+### 4. **API Integration**
+- `/api/videoDetail` - Fetches YouTube video metadata
+- `/api/transcribe` - Fetches transcript data with segments and timestamps
+
+## Feature Capabilities
+
+### Video Information Display
+- Embedded YouTube player with playback controls
+- Video title, channel, and description
+- View count, like count, and publish date
+- Expandable description with show more/less toggle
+
+### Transcript Features
+- **Timestamped Transcript**: Clickable timestamps that seek video to specific time
+- **Full Transcript**: Complete transcript text in continuous format
+- **Search**: Real-time filtering of transcript segments
+- **Downloads**: Export as TXT (full), TXT (timestamped), or SRT (subtitles)
+
+### User Interface
+- URL input validation for YouTube video links
+- Loading states with fancy button animation
+- Success feedback after transcript fetch
+- Responsive grid layout for transcript views
+- Scroll areas for long transcripts
+- Framer Motion animations for smooth transitions
+
+## Data Flow
+
+1. **User Input**: User enters YouTube video URL
+2. **Validation**: URL validated using `validateYoutubeVideoUrl()`
+3. **Fetch Video Details**: POST request to `/api/videoDetail`
+4. **Fetch Transcript**: POST request to `/api/transcribe`
+5. **Store Update**: Video details and transcript segments saved to store
+6. **Player Initialization**: YouTube IFrame Player created with video ID
+7. **UI Render**: Video player, transcript sections, and controls displayed
+8. **User Interaction**: 
+   - Click timestamps to seek video
+   - Search transcript text
+   - Download in various formats
+
+## TypeScript Interfaces
+
+### TranscriptSegment
+```typescript
+interface TranscriptSegment {
+  text: string;
+  startTime: string;  // Format: "MM:SS"
+  endTime: string;    // Format: "MM:SS"
+}
+```
+
+### VideoDetails
+```typescript
+interface VideoDetails {
+  id: string;
+  title: string;
+  description: string;
+  thumbnails: {
+    maxres?: { url: string };
+    high?: { url: string };
+    medium?: { url: string };
+  };
+  channelTitle: string;
+  publishedAt: string;
+  duration: number;
+  viewCount: number;
+  likeCount: number;
+}
+```
+
+## State Management
+
+The store maintains 8 state properties:
+- `videoUrl` - Current input URL
+- `videoDetails` - Fetched video metadata
+- `transcriptData` - Array of transcript segments
+- `searchQuery` - Filter text for transcript search
+- `showFullDescription` - Toggle for description expansion
+- `youtubePlayer` - YouTube player instance reference
+- `isLoading` - Fetch operation in progress
+- `isSuccess` - Success state for UI feedback
+
+## Related Documentation
+
+- [Transcript Store](/docs/Transcript/transcript-store) - Detailed store implementation
+- [Transcript Hooks](/docs/Transcript/transcript-hooks) - Custom hooks for fetching and player control
+- [Transcript Component](/docs/Transcript/transcript-component) - Main UI component breakdown
+- [Transcript Downloads](/docs/Transcript/transcript-downloads) - Download functionality implementation

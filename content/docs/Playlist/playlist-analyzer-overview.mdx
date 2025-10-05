@@ -1,0 +1,275 @@
+---
+title: Playlist Analyzer Overview
+description: Comprehensive guide to the Playlist Analyzer feature in Korai
+---
+
+## Overview
+
+The Playlist Analyzer is a powerful feature that allows users to analyze YouTube playlists, filter videos, and get insights about playlist content. It provides advanced filtering, sorting, and search capabilities with an intuitive user interface.
+
+## Features
+
+### Core Functionality
+
+- **Playlist Analysis**: Fetch complete playlist data including all videos and metadata
+- **Video Filtering**: Filter videos by range (start-end position in playlist)
+- **Advanced Sorting**: Sort by position, duration, views, likes, or publish date
+- **Playback Speed Adjustment**: Calculate watch time at different playback speeds (0.25x to 2x)
+- **Real-time Search**: Search videos by title with highlighted results
+- **Visual Feedback**: Loading states, success animations, and error handling
+
+### User Interface
+
+- Clean, card-based layout with dark theme
+- Responsive design (mobile, tablet, desktop)
+- Smooth animations using Framer Motion
+- Accessible form controls and keyboard navigation
+- Real-time statistics display
+
+## Architecture
+
+The Playlist Analyzer follows a clean architecture pattern:
+
+```
+src/features/analyze/
+├── components/
+│   └── analyze-view-page.tsx      # Main UI component
+├── hooks/
+│   ├── index.ts                   # Hook exports
+│   ├── use-fetch-playlist.ts      # Data fetching logic
+│   └── use-playlist-filters.ts    # Filtering/sorting logic
+├── store/
+│   └── analyze-store.ts           # Global state management
+└── index.ts                       # Feature exports
+```
+
+### Component Structure
+
+```
+AnalyzeViewPage (Main Component)
+├── Input Form Card
+│   ├── URL Input
+│   └── Toast (Analyze/Reset buttons)
+├── Feature Card (Welcome message)
+└── Analysis Results (After data fetch)
+    ├── Summary Card
+    │   ├── Total Videos
+    │   └── Total Duration
+    ├── Filters Card
+    │   ├── Playback Speed
+    │   ├── Sort By
+    │   └── Range Selection
+    ├── Search Bar
+    └── Video Grid
+        └── VideoCard components
+```
+
+## State Management
+
+The feature uses **Zustand** for state management with the following architecture:
+
+### State Structure
+
+```typescript
+interface AnalyzeState {
+  playlistUrl: string           // YouTube playlist URL
+  playlistData: PlaylistData    // Fetched playlist data
+  rangeStart: string            // Start video position
+  rangeEnd: string              // End video position
+  sortBy: string                // Sort criteria
+  playbackSpeed: string         // Playback speed multiplier
+  searchQuery: string           // Search filter
+  isLoading: boolean            // Loading state
+  isSuccess: boolean            // Success state
+  error: string | null          // Error message
+}
+```
+
+### Data Flow
+
+```
+User Input
+    ↓
+URL Validation
+    ↓
+API Call (/api/playlist)
+    ↓
+Store Update (setPlaylistData)
+    ↓
+Hooks Process Data (usePlaylistFilters)
+    ↓
+UI Update (VideoCard components)
+```
+
+## Custom Hooks
+
+### 1. useFetchPlaylist
+
+Handles playlist data fetching with error handling and toast notifications.
+
+**Responsibilities:**
+- Validates playlist URL
+- Makes API call to `/api/playlist`
+- Updates global state
+- Handles loading/success/error states
+- Auto-resets states after animations
+
+### 2. usePlaylistFilters
+
+Processes and filters playlist data based on user preferences.
+
+**Responsibilities:**
+- Filters videos by range
+- Filters videos by search query
+- Sorts videos by selected criteria
+- Calculates total duration
+- Adjusts duration for playback speed
+- Generates range options
+
+## Key Technologies
+
+- **React 18+**: Component framework
+- **Next.js 14**: App Router and server components
+- **Zustand**: State management
+- **Framer Motion**: Animations
+- **Tailwind CSS**: Styling
+- **Shadcn/ui**: UI components
+- **TypeScript**: Type safety
+
+## User Workflow
+
+1. **Enter URL**: User pastes YouTube playlist URL
+2. **Validate**: System validates URL format
+3. **Analyze**: Click analyze button to fetch data
+4. **View Results**: Playlist summary and video grid displayed
+5. **Apply Filters**: 
+   - Select video range (e.g., 1-50)
+   - Choose playback speed (0.25x to 2x)
+   - Select sort criteria
+6. **Search**: Type in search box to filter by title
+7. **Interact**: Click video cards to open in YouTube
+8. **Reset**: Clear data and start over
+
+## API Integration
+
+The feature integrates with the `/api/playlist` endpoint:
+
+**Request:**
+```typescript
+GET /api/playlist?id={playlistUrl}
+```
+
+**Response:**
+```typescript
+{
+  playlistDetails: {
+    id: string
+    title: string
+    description: string
+    thumbnails: {...}
+  },
+  videos: VideoItem[],
+  totalDuration: number,
+  totalVideos: number
+}
+```
+
+## Performance Optimizations
+
+### 1. Memoization
+- Filtered videos memoized with `useMemo`
+- Sorted videos memoized with `useMemo`
+- Range options memoized with `useMemo`
+
+### 2. Efficient Filtering
+- Single-pass filtering for range and search
+- Lazy evaluation of sort operations
+- Computed values cached until dependencies change
+
+### 3. Component Optimization
+- Animation staggering for video cards
+- Scroll area for large video lists
+- Lazy loading of video thumbnails
+
+## Error Handling
+
+### Validation Errors
+- Empty URL check
+- YouTube URL format validation
+- Playlist URL type validation
+
+### API Errors
+- Network failures
+- Invalid playlist IDs
+- Rate limiting
+- Server errors
+
+### User Feedback
+- Toast notifications for all states
+- Loading indicators
+- Error messages with actionable text
+- Success animations
+
+## Accessibility Features
+
+- Semantic HTML structure
+- ARIA labels on interactive elements
+- Keyboard navigation support
+- Focus management
+- Screen reader friendly
+- High contrast UI elements
+
+## Use Cases
+
+### 1. Course Analysis
+Analyze educational playlists to:
+- Calculate total study time
+- Adjust time for different speeds
+- Plan learning schedule
+- Track progress through playlist
+
+### 2. Content Research
+Research video content by:
+- Finding most viewed videos
+- Sorting by popularity
+- Filtering by date range
+- Searching specific topics
+
+### 3. Playlist Management
+Manage large playlists by:
+- Viewing specific sections
+- Sorting by duration
+- Finding specific videos
+- Exporting data for analysis
+
+## Future Enhancements
+
+Potential improvements for the feature:
+
+- Export playlist data (CSV, JSON)
+- Save favorite playlists
+- Compare multiple playlists
+- Advanced analytics (view trends, engagement)
+- Batch operations on videos
+- Custom tags and categories
+- Watch history integration
+- Progress tracking
+
+## Related Documentation
+
+- [Playlist Analyzer Store](/docs/playlist-analyzer-store)
+- [Playlist Analyzer Hooks](/docs/playlist-analyzer-hooks)
+- [Playlist Analyzer Component](/docs/playlist-analyzer-component)
+- [YouTube API Integration](/docs/youtube-api-routes)
+
+## Quick Start
+
+```typescript
+import AnalyzeViewPage from '@/features/analyze';
+
+export default function AnalyzePage() {
+  return <AnalyzeViewPage />;
+}
+```
+
+That's it! The component is self-contained with all necessary state management and hooks.

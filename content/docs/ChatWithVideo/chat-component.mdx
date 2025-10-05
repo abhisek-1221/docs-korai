@@ -1,0 +1,643 @@
+---
+title: Chat with Video - Component
+description: Main React component for the Chat with Video interface
+---
+
+## Overview
+
+The `VideoChatPage` component is the main interface for the Chat with Video feature. It provides a two-stage UI: video input for loading transcripts, and a chat interface for conversing with AI about the video content.
+
+## Component File
+
+**Location**: `src/features/chat/components/video-chat-page.tsx`
+
+**Dashboard Page**: `src/app/dashboard/chat/page.tsx` (renders `VideoChatPage`)
+
+## Component Structure
+
+### State Management
+
+#### Local State
+```typescript
+const [input, setInput] = useState('');
+const [model, setModel] = useState<string>(models[0].value);
+const [webSearch, setWebSearch] = useState(false);
+const [connectAppsModalOpen, setConnectAppsModalOpen] = useState(false);
+const [mcpUrl, setMcpUrl] = useState('');
+const [isConnected, setIsConnected] = useState(false);
+```
+
+- **input**: Current text input value
+- **model**: Selected AI model
+- **webSearch**: Toggle for web search mode
+- **connectAppsModalOpen**: MCP modal visibility
+- **mcpUrl**: MCP connection URL
+- **isConnected**: MCP connection status
+
+#### Store State
+```typescript
+const {
+  videoUrl,
+  transcript,
+  hasTranscript,
+  isLoadingTranscript,
+  threads,
+  generatingThreads,
+  threadsModalOpen,
+  setVideoUrl,
+  setThreadsModalOpen,
+  resetChat
+} = useVideoChatStore();
+```
+
+#### Hooks
+```typescript
+const { fetchTranscript } = useVideoTranscript();
+const { generateThreads } = useGenerateVideoThreads();
+const { messages, sendMessage, status } = useChat();
+```
+
+### Available Models
+
+```typescript
+const models = [
+  {
+    name: 'Llama 3.1 70B',
+    value: 'meta-llama/llama-3.1-70b-instruct'
+  },
+  {
+    name: 'Llama 4 Maverick',
+    value: 'meta-llama/llama-4-maverick-instruct'
+  }
+];
+```
+
+## UI Stages
+
+### Stage 1: Video Input (No Transcript)
+
+Shown when `hasTranscript === false`.
+
+```typescript
+if (!hasTranscript) {
+  return (
+    <PageContainer scrollable>
+      {/* Video input interface */}
+    </PageContainer>
+  );
+}
+```
+
+#### Layout Elements
+
+**Header Section**:
+- Icon with `MessageSquare` lucide icon
+- Title: "Chat with YouTube Videos"
+- Description: "Enter a YouTube URL to start chatting about its content"
+
+**Input Form**:
+```typescript
+<form onSubmit={handleVideoSubmit} className='space-y-4'>
+  <div className='flex flex-col gap-3 sm:flex-row'>
+    <Input
+      type='text'
+      value={videoUrl}
+      onChange={(e) => setVideoUrl(e.target.value)}
+      placeholder='Enter YouTube video URL...'
+      disabled={isLoadingTranscript}
+    />
+    <Button
+      type='submit'
+      disabled={isLoadingTranscript || !videoUrl.trim()}
+    >
+      {isLoadingTranscript ? 'Loading...' : 'Load Video'}
+    </Button>
+  </div>
+</form>
+```
+
+#### Submit Handler
+```typescript
+const handleVideoSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  await fetchTranscript();
+};
+```
+Calls the `fetchTranscript` hook to load video transcript.
+
+### Stage 2: Chat Interface (Transcript Loaded)
+
+Shown when `hasTranscript === true`.
+
+#### Empty State (No Messages)
+
+Displayed when transcript is loaded but no messages yet:
+
+```typescript
+{messages.length === 0 && (
+  <div className='flex flex-1 flex-col items-center justify-center gap-8 pb-32'>
+    {/* Header */}
+    <div className='flex flex-col items-center gap-4 text-center'>
+      <div className='bg-primary/10 flex size-16 items-center justify-center rounded-2xl'>
+        <Sparkles className='text-primary size-8' />
+      </div>
+      <h1>How can I help you today?</h1>
+      <p>Choose a suggestion below or ask me anything about the video</p>
+    </div>
+
+    {/* Suggestion Groups */}
+    {suggestionGroups.map((group) => (
+      <div key={group.label}>
+        {/* Group icon and label */}
+        <Suggestions>
+          {group.items.map((suggestion) => (
+            <Suggestion
+              onClick={handleSuggestionClick}
+              suggestion={suggestion}
+            />
+          ))}
+        </Suggestions>
+      </div>
+    ))}
+  </div>
+)}
+```
+
+#### Suggestion Groups
+
+```typescript
+const suggestionGroups = [
+  {
+    label: 'Summary',
+    icon: FileText,
+    items: [
+      'Summarize this video in one or two sentences',
+      'What are the main points or segments covered?'
+    ]
+  },
+  {
+    label: 'Comprehension',
+    icon: Search,
+    items: [
+      'What is the main topic or purpose of this video?',
+      'What are the key takeaways?',
+      'Who is the target audience?'
+    ]
+  },
+  {
+    label: 'Reflect',
+    icon: SquareActivity,
+    items: [
+      'How did this video make you feel?',
+      'What emotional tone did the speaker use?'
+    ]
+  }
+];
+```
+
+Three categories of pre-built prompts to help users get started.
+
+#### Suggestion Click Handler
+```typescript
+const handleSuggestionClick = (suggestion: string) => {
+  sendMessage(
+    { text: suggestion },
+    {
+      body: {
+        model: model,
+        webSearch: webSearch,
+        system: `You are an AI assistant helping users understand video content. 
+                 You have access to the following video transcript:
+
+${transcript}
+
+Answer questions based on this transcript. Be conversational, helpful, and accurate. 
+If something is not mentioned in the transcript, say so.`
+      }
+    }
+  );
+};
+```
+Sends the suggestion text to AI with transcript context.
+
+#### Conversation Area
+
+```typescript
+{messages.length > 0 && (
+  <Conversation className='flex-1'>
+    <ConversationContent>
+      {messages.map((message) => (
+        <div key={message.id}>
+          {/* Sources */}
+          {message.role === 'assistant' &&
+            message.parts.filter((part) => part.type === 'source-url').length > 0 && (
+            <Sources>
+              <SourcesTrigger count={...} />
+              {/* Source links */}
+            </Sources>
+          )}
+
+          {/* Message parts */}
+          {message.parts.map((part, i) => {
+            switch (part.type) {
+              case 'text':
+                return (
+                  <Fragment key={`${message.id}-${i}`}>
+                    <Message from={message.role}>
+                      <MessageContent>
+                        <Response>{part.text}</Response>
+                      </MessageContent>
+                    </Message>
+                    {/* Copy action */}
+                  </Fragment>
+                );
+              case 'reasoning':
+                return (
+                  <Reasoning isStreaming={...}>
+                    <ReasoningTrigger />
+                    <ReasoningContent>{part.text}</ReasoningContent>
+                  </Reasoning>
+                );
+              default:
+                return null;
+            }
+          })}
+        </div>
+      ))}
+      {status === 'submitted' && <Loader />}
+    </ConversationContent>
+    <ConversationScrollButton />
+  </Conversation>
+)}
+```
+
+#### Message Part Types
+
+1. **Text Parts**: Main response content
+2. **Reasoning Parts**: Collapsible reasoning/thinking sections
+3. **Source URL Parts**: Web search sources (shown separately)
+
+#### Copy Action
+```typescript
+<Actions className='mt-2'>
+  <Action
+    onClick={() => navigator.clipboard.writeText(part.text)}
+    label='Copy'
+  >
+    <CopyIcon className='size-3' />
+  </Action>
+</Actions>
+```
+Allows users to copy assistant responses.
+
+## Input Area
+
+### Prompt Input Component
+
+```typescript
+<PromptInput
+  onSubmit={handleSubmit}
+  className='mt-0 pt-4'
+  globalDrop
+  multiple
+>
+  <PromptInputBody>
+    {/* Attachments */}
+    <PromptInputAttachments>
+      {(attachment) => <PromptInputAttachment data={attachment} />}
+    </PromptInputAttachments>
+
+    {/* Text area */}
+    <PromptInputTextarea
+      onChange={(e) => setInput(e.target.value)}
+      value={input}
+      placeholder='Ask me anything about the video...'
+    />
+  </PromptInputBody>
+
+  <PromptInputToolbar>
+    <PromptInputTools>
+      {/* Tools */}
+    </PromptInputTools>
+    <PromptInputSubmit disabled={!input && !status} status={status} />
+  </PromptInputToolbar>
+</PromptInput>
+```
+
+### Toolbar Actions
+
+#### Attachment Menu
+```typescript
+<PromptInputActionMenu>
+  <PromptInputActionMenuTrigger />
+  <PromptInputActionMenuContent>
+    <PromptInputActionAddAttachments />
+  </PromptInputActionMenuContent>
+</PromptInputActionMenu>
+```
+Allows users to add file attachments to messages.
+
+#### New Video Button
+```typescript
+<PromptInputButton variant='ghost' onClick={resetChat}>
+  <RefreshCcwIcon size={16} />
+  <span>New Video</span>
+</PromptInputButton>
+```
+Resets chat to load a different video.
+
+#### Connect Apps Button
+```typescript
+<PromptInputButton
+  variant='ghost'
+  onClick={() => setConnectAppsModalOpen(true)}
+>
+  <Plug2 size={16} />
+  <span>Connect Apps</span>
+</PromptInputButton>
+```
+Opens MCP (Model Context Protocol) connection modal.
+
+#### Generate Thread Button
+```typescript
+<PromptInputButton
+  variant='ghost'
+  onClick={generateThreads}
+  disabled={generatingThreads}
+>
+  <svg>{/* X/Twitter icon */}</svg>
+  <span>Thread</span>
+</PromptInputButton>
+```
+Generates Twitter/X thread from video content.
+
+#### Web Search Toggle
+```typescript
+<PromptInputButton
+  variant={webSearch ? 'default' : 'ghost'}
+  onClick={() => setWebSearch(!webSearch)}
+>
+  <GlobeIcon size={16} />
+  <span>Search</span>
+</PromptInputButton>
+```
+Toggles web search mode (uses Perplexity Sonar).
+
+#### Model Selector
+```typescript
+<PromptInputModelSelect
+  onValueChange={(value) => setModel(value)}
+  value={model}
+>
+  <PromptInputModelSelectTrigger>
+    <PromptInputModelSelectValue />
+  </PromptInputModelSelectTrigger>
+  <PromptInputModelSelectContent>
+    {models.map((model) => (
+      <PromptInputModelSelectItem key={model.value} value={model.value}>
+        {model.name}
+      </PromptInputModelSelectItem>
+    ))}
+  </PromptInputModelSelectContent>
+</PromptInputModelSelect>
+```
+Dropdown to select AI model.
+
+### Submit Handler
+
+```typescript
+const handleSubmit = (message: PromptInputMessage) => {
+  const hasText = Boolean(message.text);
+  const hasAttachments = Boolean(message.files?.length);
+
+  if (!(hasText || hasAttachments)) {
+    return;
+  }
+
+  sendMessage(
+    {
+      text: message.text || 'Sent with attachments',
+      files: message.files
+    },
+    {
+      body: {
+        model: model,
+        webSearch: webSearch,
+        system: `You are an AI assistant helping users understand video content. 
+                 You have access to the following video transcript:
+
+${transcript}
+
+Answer questions based on this transcript. Be conversational, helpful, and accurate. 
+If something is not mentioned in the transcript, say so.`
+      }
+    }
+  );
+  setInput('');
+};
+```
+
+Validates message has content, sends to AI with transcript context, clears input.
+
+## Modals
+
+### Thread Generation Modal
+
+```typescript
+<Dialog open={threadsModalOpen} onOpenChange={setThreadsModalOpen}>
+  <DialogContent className='max-h-[90vh] w-[95vw] max-w-2xl sm:w-full'>
+    <DialogHeader>
+      <DialogTitle>
+        {generatingThreads ? 'Generating X Thread...' : 'Your Viral X Thread'}
+      </DialogTitle>
+    </DialogHeader>
+
+    <ScrollArea className='h-[60vh] pr-4'>
+      {generatingThreads && <ThreadSkeleton count={5} />}
+      
+      {threads.length > 0 && !generatingThreads && (
+        <div className='space-y-4'>
+          {threads.map((thread, index) => (
+            <ThreadPost
+              key={index}
+              post={thread.post}
+              total={thread.total}
+              content={thread.content}
+              index={index}
+              isConnected={thread.post < thread.total}
+              thumbnail={thread.thumbnail}
+            />
+          ))}
+        </div>
+      )}
+    </ScrollArea>
+
+    {threads.length > 0 && !generatingThreads && (
+      <div className='flex justify-end space-x-3 border-t pt-4'>
+        <Button variant='outline' onClick={copyThreadsToClipboard}>
+          <Copy className='mr-2 h-4 w-4' />
+          Copy All
+        </Button>
+        <Button onClick={shareToTwitter}>
+          Share on X
+        </Button>
+      </div>
+    )}
+  </DialogContent>
+</Dialog>
+```
+
+#### Copy Threads Function
+```typescript
+const copyThreadsToClipboard = () => {
+  const threadsText = threads
+    .map((thread) => `${thread.post}. ${thread.content}`)
+    .join('\n\n');
+  navigator.clipboard.writeText(threadsText);
+  toast({
+    title: 'Copied!',
+    description: 'Thread copied to clipboard'
+  });
+};
+```
+Copies all thread posts as formatted text.
+
+#### Share to Twitter Function
+```typescript
+const shareToTwitter = () => {
+  const threadsText = threads.map((thread) => thread.content).join('\n\n');
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(threadsText)}`;
+  window.open(twitterUrl, '_blank');
+};
+```
+Opens Twitter compose window with thread content.
+
+### MCP Connection Modal
+
+```typescript
+<Dialog
+  open={connectAppsModalOpen}
+  onOpenChange={(open) => {
+    setConnectAppsModalOpen(open);
+    if (!open) {
+      setIsConnected(false);
+      setMcpUrl('');
+    }
+  }}
+>
+  <DialogContent className='max-w-md'>
+    <DialogHeader>
+      <DialogTitle>
+        <Plug2 className='h-5 w-5' />
+        Connect Apps
+      </DialogTitle>
+    </DialogHeader>
+
+    <div className='space-y-4 py-4'>
+      <Input
+        id='mcp-url'
+        type='url'
+        value={mcpUrl}
+        onChange={(e) => setMcpUrl(e.target.value)}
+        placeholder='https://example.com/mcp/stream'
+        disabled={isConnected}
+      />
+
+      <Button
+        onClick={handleConnectApp}
+        disabled={!mcpUrl.trim() || isConnected}
+      >
+        {isConnected ? 'Connected' : 'Connect'}
+      </Button>
+
+      {isConnected && (
+        <p>Successfully connected to MCP service</p>
+      )}
+    </div>
+  </DialogContent>
+</Dialog>
+```
+
+#### Connect Handler
+```typescript
+const handleConnectApp = () => {
+  setIsConnected(true);
+  setTimeout(() => {
+    setConnectAppsModalOpen(false);
+    toast({
+      title: 'Connected!',
+      description: 'MCP app connected successfully'
+    });
+  }, 500);
+};
+```
+Mock connection handler (shows UI pattern for MCP integration).
+
+## Component Layout
+
+```
+PageContainer
+  ├─ Video Input Stage (if !hasTranscript)
+  │   ├─ Header (icon + title + description)
+  │   └─ Card
+  │       └─ Form (URL input + Load button)
+  │
+  └─ Chat Interface Stage (if hasTranscript)
+      ├─ Empty State (if no messages)
+      │   ├─ Header (icon + title + description)
+      │   └─ Suggestion Groups
+      │       ├─ Summary suggestions
+      │       ├─ Comprehension suggestions
+      │       └─ Reflect suggestions
+      │
+      ├─ Conversation (if messages exist)
+      │   ├─ Message list
+      │   │   ├─ User messages
+      │   │   └─ Assistant messages
+      │   │       ├─ Text parts
+      │   │       ├─ Reasoning parts
+      │   │       └─ Source parts
+      │   └─ Scroll button
+      │
+      ├─ Input Area
+      │   ├─ Attachments (optional)
+      │   ├─ Text area
+      │   └─ Toolbar
+      │       ├─ Attachment menu
+      │       ├─ New Video button
+      │       ├─ Connect Apps button
+      │       ├─ Thread button
+      │       ├─ Web Search toggle
+      │       ├─ Model selector
+      │       └─ Submit button
+      │
+      ├─ Thread Modal
+      │   ├─ Header
+      │   ├─ Thread posts (or skeleton)
+      │   └─ Actions (Copy All, Share on X)
+      │
+      └─ MCP Modal
+          ├─ Header
+          ├─ URL input
+          └─ Connect button
+```
+
+## Responsive Design
+
+### Mobile Adaptations
+- Form layout changes to vertical stack on mobile
+- Modal widths adapt to viewport: `w-[95vw] max-w-2xl sm:w-full`
+- Toolbar actions stack appropriately
+- Suggestion cards adjust to available width
+
+### Scroll Management
+- Chat area scrolls independently: `h-[calc(100vh-8rem)]`
+- Thread modal scroll area: `h-[60vh]`
+- Auto-scroll to new messages via `ConversationScrollButton`
+
+## Related Documentation
+
+- [Chat Overview](/docs/ChatWithVideo/chat-overview)
+- [Chat Store](/docs/ChatWithVideo/chat-store)
+- [Chat Hooks](/docs/ChatWithVideo/chat-hooks)
+- [Chat API Route](/docs/ChatWithVideo/chat-api-route)

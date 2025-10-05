@@ -1,0 +1,607 @@
+---
+title: Voice Chat API Routes
+description: Backend API routes for speech processing and AI chat
+---
+
+# Voice Chat API Routes
+
+The Voice Chat feature uses three API routes to handle speech-to-text, AI chat, and text-to-speech processing.
+
+## Speech-to-Text API
+
+### POST /api/voice-chat/speech-to-text
+
+Converts audio recordings to text using Sarvam AI's Saarika v2.5 model.
+
+### Implementation
+
+```typescript
+import { SarvamAIClient } from 'sarvamai';
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function POST(request: NextRequest) {
+  try {
+    const API_KEY = process.env.SARVAM_API_KEY;
+
+    if (!API_KEY) {
+      return NextResponse.json(
+        { error: 'Sarvam API key not configured' },
+        { status: 500 }
+      );
+    }
+
+    const formData = await request.formData();
+    const audioFile = formData.get('audio') as File;
+    const language = formData.get('language') as string;
+
+    if (!audioFile) {
+      return NextResponse.json(
+        { error: 'No audio file provided' },
+        { status: 400 }
+      );
+    }
+
+    const client = new SarvamAIClient({ apiSubscriptionKey: API_KEY });
+
+    const buffer = await audioFile.arrayBuffer();
+    const file = new File([buffer], audioFile.name, { type: audioFile.type });
+
+    const languageMap: { [key: string]: string } = {
+      'en-US': 'en-IN',
+      'hi-IN': 'hi-IN',
+      'bn-IN': 'bn-IN',
+      'ta-IN': 'ta-IN',
+      'te-IN': 'te-IN',
+      'mr-IN': 'mr-IN',
+      'gu-IN': 'gu-IN',
+      'kn-IN': 'kn-IN',
+      'ml-IN': 'ml-IN',
+      'od-IN': 'od-IN',
+      'pa-IN': 'pa-IN'
+    };
+
+    const sarvamLanguage = languageMap[language] || 'hi-IN';
+
+    const response = await client.speechToText.transcribe({
+      file: file,
+      model: 'saarika:v2.5',
+      language_code: sarvamLanguage as any
+    });
+
+    return NextResponse.json({
+      text: response.transcript || '',
+      language: language
+    });
+  } catch (error: any) {
+    console.error('Speech-to-text error:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to transcribe audio' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### How It Works
+
+**Step 1: Environment Setup**
+- Retrieves `SARVAM_API_KEY` from environment variables
+- Returns 500 error if API key not configured
+- Creates SarvamAIClient instance with API key
+
+**Step 2: Request Parsing**
+- Extracts FormData from request
+- Gets `audio` file (WAV format)
+- Gets `language` code (e.g., 'en-US', 'hi-IN')
+- Validates audio file exists
+
+**Step 3: Audio Processing**
+- Converts File to ArrayBuffer
+- Creates new File object with proper type
+- Maintains original filename and MIME type
+
+**Step 4: Language Mapping**
+- Maps UI language codes to Sarvam AI language codes
+- Most codes match (e.g., 'hi-IN' → 'hi-IN')
+- English converts from 'en-US' to 'en-IN'
+- Defaults to 'hi-IN' if unmapped language
+
+**Step 5: Transcription**
+- Calls Sarvam AI's `speechToText.transcribe()` method
+- Uses 'saarika:v2.5' model (latest multilingual STT model)
+- Specifies language for better accuracy
+- Returns transcribed text
+
+**Step 6: Response**
+- Returns JSON with transcribed text and language
+- Includes error handling for API failures
+
+### Request Format
+
+```typescript
+const formData = new FormData();
+formData.append('audio', audioBlob, 'recording.wav');
+formData.append('language', 'en-US');
+
+const response = await fetch('/api/voice-chat/speech-to-text', {
+  method: 'POST',
+  body: formData
+});
+
+const data = await response.json();
+// { text: "What is this video about?", language: "en-US" }
+```
+
+### Supported Languages
+
+All 11 Indian languages plus English:
+- en-US → en-IN (English)
+- hi-IN (Hindi)
+- bn-IN (Bengali)
+- ta-IN (Tamil)
+- te-IN (Telugu)
+- mr-IN (Marathi)
+- gu-IN (Gujarati)
+- kn-IN (Kannada)
+- ml-IN (Malayalam)
+- od-IN (Odia)
+- pa-IN (Punjabi)
+
+### Error Handling
+
+**Missing API Key**: Returns 500 with "Sarvam API key not configured"
+
+**No Audio File**: Returns 400 with "No audio file provided"
+
+**Transcription Failure**: Returns 500 with error message from Sarvam AI
+
+## Chat API
+
+### POST /api/voice-chat/chat
+
+Generates AI responses based on video transcript context and conversation history.
+
+### Implementation
+
+```typescript
+import { generateText } from 'ai';
+import { NextRequest, NextResponse } from 'next/server';
+import { getModel, DEFAULT_MODEL } from '@/lib/providers';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { message, transcript, language, previousMessages, model } =
+      await request.json();
+
+    if (!message) {
+      return NextResponse.json(
+        { error: 'No message provided' },
+        { status: 400 }
+      );
+    }
+
+    if (!transcript) {
+      return NextResponse.json(
+        { error: 'No video transcript available' },
+        { status: 400 }
+      );
+    }
+
+    // Get the appropriate model
+    const selectedModel = getModel(model || DEFAULT_MODEL);
+
+    // Language-specific instructions
+    const languageInstructions: { [key: string]: string } = {
+      'en-US': 'Respond in English',
+      'hi-IN': 'Respond in Hindi (Devanagari script)',
+      'bn-IN': 'Respond in Bengali',
+      'ta-IN': 'Respond in Tamil',
+      'te-IN': 'Respond in Telugu',
+      'mr-IN': 'Respond in Marathi',
+      'gu-IN': 'Respond in Gujarati',
+      'kn-IN': 'Respond in Kannada',
+      'ml-IN': 'Respond in Malayalam',
+      'od-IN': 'Respond in Odia',
+      'pa-IN': 'Respond in Punjabi'
+    };
+
+    const languageInstruction =
+      languageInstructions[language] ||
+      'Respond in the same language as the user';
+
+    const systemPrompt = `You are a multilingual AI assistant helping users understand video content. You have access to the following video transcript:
+
+${transcript.substring(0, 2000)}
+
+Guidelines:
+- Answer questions based on this transcript
+- Be conversational, helpful, and accurate
+- Keep responses concise but informative (2-3 sentences max for voice)
+- If something is not mentioned in the transcript, say so
+- Respond in a natural, speaking style since this will be converted to speech
+- IMPORTANT: ${languageInstruction}
+
+Previous conversation context:
+${
+  previousMessages
+    ?.slice(-3)
+    .map((msg: any) => `${msg.role}: ${msg.content}`)
+    .join('\n') || 'None'
+}
+
+Current user message: ${message}`;
+
+    const result = await generateText({
+      model: selectedModel as any,
+      prompt: systemPrompt,
+      temperature: 0.7
+    });
+
+    if (!result.text || result.text.trim().length === 0) {
+      return NextResponse.json(
+        { error: 'AI returned empty response' },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      response: result.text.trim(),
+      language: language
+    });
+  } catch (error: any) {
+    console.error('Chat error:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to generate response' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### How It Works
+
+**Step 1: Request Validation**
+- Extracts message, transcript, language, previousMessages, and optional model
+- Validates message exists (user question)
+- Validates transcript exists (video context)
+- Returns 400 errors if validation fails
+
+**Step 2: Model Selection**
+- Gets AI model using centralized provider system
+- Defaults to `DEFAULT_MODEL` if not specified
+- Supports multiple model providers (OpenAI, Anthropic, Google, etc.)
+
+**Step 3: Language Instruction**
+- Maps language code to instruction string
+- Explicitly tells AI to respond in specific language
+- Important for Hindi (specifies Devanagari script)
+- Fallback: "Respond in the same language as the user"
+
+**Step 4: System Prompt Construction**
+- Includes first 2000 characters of video transcript (context)
+- Sets AI role as multilingual video assistant
+- Provides guidelines:
+  - Answer based on transcript
+  - Be conversational
+  - Keep responses short (2-3 sentences for voice)
+  - Acknowledge if information not in transcript
+  - Use natural speaking style
+  - Respond in specified language
+- Includes last 3 messages from conversation (for context continuity)
+- Includes current user message
+
+**Step 5: AI Generation**
+- Calls Vercel AI SDK's `generateText()` function
+- Uses selected model
+- Temperature 0.7 for balanced creativity/consistency
+- Generates response based on full context
+
+**Step 6: Response Validation**
+- Checks if AI returned text
+- Returns 500 error if response empty
+- Trims whitespace from response
+
+**Step 7: Return Response**
+- Returns JSON with AI response text and language code
+- Client uses this for TTS generation
+
+### Request Format
+
+```typescript
+const response = await fetch('/api/voice-chat/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    message: 'What is this video about?',
+    transcript: 'Full video transcript here...',
+    language: 'en-US',
+    previousMessages: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi! How can I help?' }
+    ]
+  })
+});
+
+const data = await response.json();
+// { response: "This video explains...", language: "en-US" }
+```
+
+### Context Window
+
+**Transcript Context**: First 2000 characters (sufficient for most videos, prevents token overflow)
+
+**Conversation Context**: Last 3 messages (maintains conversation flow without excessive tokens)
+
+This balancing ensures the AI has enough context while staying within token limits.
+
+### Language-Specific Responses
+
+The AI is instructed to respond in the user's selected language. Examples:
+
+**English (en-US)**:
+```
+User: "What is this video about?"
+AI: "This video discusses machine learning basics and neural networks."
+```
+
+**Hindi (hi-IN)**:
+```
+User: "यह वीडियो किस बारे में है?"
+AI: "यह वीडियो मशीन लर्निंग और न्यूरल नेटवर्क्स के बारे में है।"
+```
+
+## Text-to-Speech API
+
+### POST /api/voice-chat/text-to-speech
+
+Converts AI text responses to speech audio using Sarvam AI's Bulbul v2 model.
+
+### Implementation
+
+```typescript
+import { SarvamAIClient } from 'sarvamai';
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function POST(request: NextRequest) {
+  try {
+    const API_KEY = process.env.SARVAM_API_KEY;
+
+    if (!API_KEY) {
+      console.error('TTS Error: API key not configured');
+      return NextResponse.json(
+        { error: 'Sarvam API key not configured' },
+        { status: 500 }
+      );
+    }
+
+    const body = await request.json();
+    const { text, language } = body;
+
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      console.error('TTS Error: Invalid text', { text, type: typeof text });
+      return NextResponse.json(
+        { error: 'No valid text provided' },
+        { status: 400 }
+      );
+    }
+
+    if (!language) {
+      console.error('TTS Error: No language provided');
+      return NextResponse.json(
+        { error: 'No language provided' },
+        { status: 400 }
+      );
+    }
+
+    const client = new SarvamAIClient({ apiSubscriptionKey: API_KEY });
+
+    const languageMap: { [key: string]: string } = {
+      'en-US': 'en-IN',
+      'hi-IN': 'hi-IN',
+      'bn-IN': 'bn-IN',
+      'ta-IN': 'ta-IN',
+      'te-IN': 'te-IN',
+      'mr-IN': 'mr-IN',
+      'gu-IN': 'gu-IN',
+      'kn-IN': 'kn-IN',
+      'ml-IN': 'ml-IN',
+      'od-IN': 'od-IN',
+      'pa-IN': 'pa-IN'
+    };
+
+    const sarvamLanguage = languageMap[language] || 'en-IN';
+
+    const ttsParams = {
+      text: text.trim(),
+      model: 'bulbul:v2' as any,
+      speaker: 'anushka' as any,
+      target_language_code: sarvamLanguage as any,
+      enable_preprocessing: true
+    };
+
+    const response = await client.textToSpeech.convert(ttsParams);
+
+    if (!response.audios || response.audios.length === 0) {
+      console.error('TTS Error: No audio generated in response', response);
+      return NextResponse.json(
+        { error: 'No audio generated', response },
+        { status: 400 }
+      );
+    }
+
+    const audioBase64 = response.audios[0];
+    const audioBuffer = Buffer.from(audioBase64, 'base64');
+
+    return new NextResponse(audioBuffer, {
+      headers: {
+        'Content-Type': 'audio/wav',
+        'Content-Length': audioBuffer.length.toString()
+      }
+    });
+  } catch (error: any) {
+    console.error('Text-to-speech error details:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+      response: error.response,
+      data: error.response?.data,
+      status: error.response?.status,
+      statusText: error.response?.statusText
+    });
+
+    const statusCode = error.response?.status || 500;
+
+    return NextResponse.json(
+      {
+        error: error.message || 'Failed to generate speech',
+        details:
+          error.response?.data ||
+          error.response?.statusText ||
+          error.toString(),
+        statusCode
+      },
+      { status: statusCode }
+    );
+  }
+}
+```
+
+### How It Works
+
+**Step 1: Environment Setup**
+- Retrieves `SARVAM_API_KEY` from environment
+- Returns 500 if API key missing
+- Creates SarvamAIClient instance
+
+**Step 2: Request Validation**
+- Parses JSON body
+- Extracts `text` (AI response to speak)
+- Extracts `language` (voice language)
+- Validates text is non-empty string
+- Validates language exists
+- Returns 400 errors if validation fails
+
+**Step 3: Language Mapping**
+- Maps UI language codes to Sarvam AI codes
+- Same mapping as STT API
+- Defaults to 'en-IN' if unmapped
+
+**Step 4: TTS Parameters**
+- **text**: Trimmed AI response text
+- **model**: 'bulbul:v2' (latest multilingual TTS model)
+- **speaker**: 'anushka' (female voice, natural sounding)
+- **target_language_code**: Mapped language code
+- **enable_preprocessing**: true (improves text normalization)
+
+**Step 5: Audio Generation**
+- Calls Sarvam AI's `textToSpeech.convert()` method
+- Generates speech audio in specified language
+- Returns base64-encoded audio
+
+**Step 6: Response Processing**
+- Validates audio array exists and has content
+- Gets first audio from response (base64 string)
+- Converts base64 to Buffer
+- Returns audio buffer with WAV content type
+
+**Step 7: Error Handling**
+- Logs detailed error information
+- Returns appropriate status codes
+- Includes error details in response
+
+### Request Format
+
+```typescript
+const response = await fetch('/api/voice-chat/text-to-speech', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    text: 'This video explains machine learning basics.',
+    language: 'en-US'
+  })
+});
+
+const audioBuffer = await response.arrayBuffer();
+const audioBlob = new Blob([audioBuffer], { type: 'audio/wav' });
+const audioUrl = URL.createObjectURL(audioBlob);
+
+// Play audio
+const audio = new Audio(audioUrl);
+audio.play();
+```
+
+### Voice Characteristics
+
+**Model**: Bulbul v2 (natural, conversational TTS)
+
+**Speaker**: Anushka (female voice with clear pronunciation)
+
+**Features**:
+- Natural intonation
+- Proper pacing for conversation
+- Language-specific pronunciation
+- Text preprocessing for numbers, dates, etc.
+
+### Audio Format
+
+**Output**: WAV format
+**Encoding**: PCM
+**Quality**: High-fidelity voice synthesis
+**Size**: Varies based on text length (typically 50-200KB per response)
+
+## Environment Variables
+
+All three routes require:
+
+```bash
+SARVAM_API_KEY=your-sarvam-ai-api-key-here
+```
+
+Get your API key from [Sarvam AI Console](https://platform.sarvam.ai/).
+
+## API Flow Diagram
+
+```
+User Speech
+    ↓
+[Browser Microphone] → Audio Blob (WAV)
+    ↓
+POST /api/voice-chat/speech-to-text
+    ↓
+[Sarvam AI Saarika] → Transcribed Text
+    ↓
+POST /api/voice-chat/chat (with transcript context)
+    ↓
+[AI Model] → Response Text
+    ↓
+POST /api/voice-chat/text-to-speech
+    ↓
+[Sarvam AI Bulbul] → Audio Buffer (WAV)
+    ↓
+[Browser Audio Player] → User Hears Response
+```
+
+
+## Error Responses
+
+All endpoints follow consistent error format:
+
+```json
+{
+  "error": "Human-readable error message",
+  "details": "Additional error context (optional)"
+}
+```
+
+Common status codes:
+- **400**: Bad request (missing/invalid input)
+- **500**: Server error (API failure, configuration issue)
+
+## Rate Limiting Considerations
+
+These routes interact with external Sarvam AI API which may have:
+- Rate limits per API key
+- Usage quotas
+- Billing based on usage
+
+Consider implementing rate limiting on your end using Upstash Redis (similar to other features in the app).

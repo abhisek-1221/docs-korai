@@ -1,0 +1,579 @@
+---
+title: Identify Clips API & Component
+description: YouTube video submission and clip identification interface
+---
+
+# Identify Clips Feature
+
+The Identify Clips feature allows users to submit YouTube videos for AI-powered viral moment detection. This document covers the submission interface and API endpoint.
+
+## Upload Page Component
+
+The main entry point for submitting videos for clip identification.
+
+**Location**: `/app/dashboard/clips/page.tsx`
+
+### Component Structure
+
+```tsx
+export default function ClipsPage() {
+  const router = useRouter();
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Form submission handler
+  const handleSubmit = async (e: React.FormEvent) => {
+    // ... validation and API call
+  };
+
+  return (
+    // UI components
+  );
+}
+```
+
+### How It Works
+
+**Step 1: Form Validation**
+```typescript
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  // Check if URL is empty
+  if (!youtubeUrl || !youtubeUrl.trim()) {
+    toast.error('Please enter a YouTube video URL');
+    return;
+  }
+
+  // Validate YouTube URL format
+  const validation = validateYoutubeVideoUrl(youtubeUrl);
+
+  if (!validation.isValid) {
+    toast.error(validation.error || 'Please enter a valid YouTube video URL');
+    return;
+  }
+
+  setIsLoading(true);
+  // ... proceed with API call
+};
+```
+
+**Validation Checks**:
+- URL is not empty
+- URL matches YouTube video format
+- URL contains valid video ID
+- Uses `validateYoutubeVideoUrl()` utility
+
+**Step 2: API Request**
+```typescript
+try {
+  const response = await fetch('/api/clips/identify', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      youtubeUrl,
+      prompt
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to start clip identification');
+  }
+
+  toast.success('Video processing started. This may take a few minutes.');
+
+  // Reset form
+  setYoutubeUrl('');
+  setPrompt('');
+
+  // Redirect to videos list
+  router.push('/dashboard/clips/videos');
+} catch (error) {
+  console.error('Error:', error);
+  toast.error(
+    error instanceof Error ? error.message : 'Failed to start processing'
+  );
+} finally {
+  setIsLoading(false);
+}
+```
+
+**API Call Flow**:
+1. POSTs to `/api/clips/identify`
+2. Sends YouTube URL and optional prompt
+3. Receives success confirmation
+4. Shows success notification
+5. Resets form fields
+6. Redirects to videos list page
+7. Background processing starts via Inngest
+
+**Step 3: Error Handling**
+- Network errors caught and displayed
+- API errors shown via toast notifications
+- Loading state prevents duplicate submissions
+- Finally block ensures loading state reset
+
+### UI Layout
+
+**Header Section**:
+```tsx
+<div className='mb-10 text-center'>
+  <div className='mb-4 flex items-center justify-center gap-3'>
+    <div className='bg-primary/10 rounded-full p-3'>
+      <Youtube className='text-primary h-8 w-8' />
+    </div>
+    <h1 className='from-primary to-primary/60 bg-gradient-to-r bg-clip-text text-4xl font-bold text-transparent'>
+      Upload YouTube Link
+    </h1>
+  </div>
+  <p className='text-muted-foreground mx-auto max-w-2xl text-lg'>
+    Transform your YouTube videos into viral-worthy clips with
+    AI-powered analysis
+  </p>
+</div>
+```
+
+Shows centered title with YouTube icon and description.
+
+**Feature Cards**:
+```tsx
+<div className='mb-8 grid grid-cols-1 gap-6 lg:grid-cols-3'>
+  <Card className='border-2'>
+    <CardContent className='pt-6 text-center'>
+      <div className='mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-500/10'>
+        <Sparkles className='h-6 w-6 text-blue-500' />
+      </div>
+      <h3 className='mb-2 font-semibold'>AI-Powered Analysis</h3>
+      <p className='text-muted-foreground text-sm'>
+        Advanced algorithms identify the most engaging moments
+      </p>
+    </CardContent>
+  </Card>
+  
+  // Two more feature cards...
+</div>
+```
+
+Three cards highlighting key features:
+1. **AI-Powered Analysis**: Algorithm highlights
+2. **Precise Timestamps**: Exact clip boundaries
+3. **Detailed Insights**: Scores, summaries, topics
+
+**Main Form**:
+```tsx
+<Card className='border-2 shadow-lg'>
+  <CardHeader className='bg-muted/50 border-b'>
+    <CardTitle className='flex items-center gap-2 text-2xl'>
+      <Youtube className='h-6 w-6 text-red-500' />
+      Video Information
+    </CardTitle>
+    <CardDescription className='text-base'>
+      Enter a YouTube URL and optional custom prompt to guide the AI
+    </CardDescription>
+  </CardHeader>
+  <CardContent className='pt-6'>
+    <form onSubmit={handleSubmit} className='space-y-8'>
+      {/* URL Input */}
+      <div className='space-y-3'>
+        <Label htmlFor='youtubeUrl'>YouTube URL *</Label>
+        <Input
+          id='youtubeUrl'
+          type='url'
+          placeholder='https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+          value={youtubeUrl}
+          onChange={(e) => setYoutubeUrl(e.target.value)}
+          required
+          disabled={isLoading}
+        />
+        <p className='text-muted-foreground text-sm'>
+          Paste the full URL of the YouTube video
+        </p>
+      </div>
+
+      {/* Prompt Input */}
+      <div className='space-y-3'>
+        <Label htmlFor='prompt'>Custom Prompt (Optional)</Label>
+        <Textarea
+          id='prompt'
+          placeholder='e.g., Focus on emotional moments, technical explanations, or funny segments...'
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          disabled={isLoading}
+          rows={4}
+        />
+        <p className='text-muted-foreground text-sm'>
+          Add specific instructions to guide the AI
+        </p>
+      </div>
+
+      {/* Action Buttons */}
+      <div className='flex gap-4 pt-4'>
+        <Button
+          type='submit'
+          disabled={isLoading || !youtubeUrl}
+          size='lg'
+          className='h-12 flex-1'
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className='mr-2 h-5 w-5 animate-spin' />
+              Processing Video...
+            </>
+          ) : (
+            <>
+              <Sparkles className='mr-2 h-5 w-5' />
+              Identify Viral Clips
+            </>
+          )}
+        </Button>
+
+        <Button
+          type='button'
+          variant='outline'
+          size='lg'
+          onClick={() => router.push('/dashboard/clips/videos')}
+          disabled={isLoading}
+        >
+          <FolderOpen className='mr-2 h-5 w-5' />
+          View Spaces
+        </Button>
+      </div>
+    </form>
+  </CardContent>
+</Card>
+```
+
+**Form Fields**:
+1. **YouTube URL** (required): Text input for video URL
+2. **Custom Prompt** (optional): Textarea for AI instructions
+3. **Submit Button**: Disabled when loading or URL empty
+4. **View Spaces Button**: Navigate to existing videos
+
+**Info Section**:
+```tsx
+<div className='bg-muted/50 mt-8 rounded-lg border p-6'>
+  <h3 className='mb-3 flex items-center gap-2 font-semibold'>
+    <Video className='h-5 w-5' />
+    How it works
+  </h3>
+  <ol className='text-muted-foreground ml-7 space-y-2 text-sm'>
+    <li className='list-decimal'>Submit your YouTube video URL</li>
+    <li className='list-decimal'>
+      AI analyzes the entire video for viral moments
+    </li>
+    <li className='list-decimal'>
+      Receive clips with timestamps, scores, and summaries
+    </li>
+    <li className='list-decimal'>
+      Preview and manage your clips in the Spaces section
+    </li>
+  </ol>
+</div>
+```
+
+Explains the process to users in 4 steps.
+
+## Identify Clips API Route
+
+**Location**: `/app/api/clips/identify/route.ts`
+
+### Implementation
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { inngest } from '@/lib/inngest';
+import { z } from 'zod';
+
+const identifyClipsSchema = z.object({
+  youtubeUrl: z.string().url(),
+  prompt: z.string().optional().default('')
+});
+
+export async function POST(req: NextRequest) {
+  try {
+    const { userId } = await auth();
+
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const validation = identifyClipsSchema.safeParse(body);
+
+    if (!validation.success) {
+      return NextResponse.json(
+        { error: 'Invalid request', details: validation.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const { youtubeUrl, prompt } = validation.data;
+
+    // Trigger the Inngest function
+    await inngest.send({
+      name: 'video/identify.clips',
+      data: {
+        youtubeUrl,
+        prompt,
+        userId
+      }
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Video processing started'
+    });
+  } catch (error) {
+    console.error('Error identifying clips:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### How It Works
+
+**Step 1: Authentication**
+```typescript
+const { userId } = await auth();
+
+if (!userId) {
+  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+}
+```
+
+Uses Clerk to authenticate user. Returns 401 if not logged in.
+
+**Step 2: Request Validation**
+```typescript
+const identifyClipsSchema = z.object({
+  youtubeUrl: z.string().url(),
+  prompt: z.string().optional().default('')
+});
+
+const body = await req.json();
+const validation = identifyClipsSchema.safeParse(body);
+
+if (!validation.success) {
+  return NextResponse.json(
+    { error: 'Invalid request', details: validation.error.issues },
+    { status: 400 }
+  );
+}
+```
+
+Uses Zod schema to validate:
+- `youtubeUrl`: Must be valid URL string
+- `prompt`: Optional string, defaults to empty
+
+Returns 400 with validation errors if invalid.
+
+**Step 3: Trigger Inngest Function**
+```typescript
+await inngest.send({
+  name: 'video/identify.clips',
+  data: {
+    youtubeUrl,
+    prompt,
+    userId
+  }
+});
+```
+
+Sends event to Inngest to trigger background processing:
+- **Event name**: `'video/identify.clips'`
+- **Event data**: URL, prompt, user ID
+- Non-blocking: Returns immediately without waiting for processing
+
+**Step 4: Success Response**
+```typescript
+return NextResponse.json({
+  success: true,
+  message: 'Video processing started'
+});
+```
+
+Returns success immediately. Actual processing happens asynchronously.
+
+**Error Handling**:
+```typescript
+catch (error) {
+  console.error('Error identifying clips:', error);
+  return NextResponse.json(
+    { error: 'Internal server error' },
+    { status: 500 }
+  );
+}
+```
+
+Catches unexpected errors and returns 500.
+
+## Custom Prompt Usage
+
+The optional prompt field allows users to guide the AI's clip identification:
+
+**Examples**:
+- "Focus on emotional moments and audience reactions"
+- "Identify technical explanations and tutorials"
+- "Find funny segments and comedic timing"
+- "Look for action-packed or dramatic moments"
+- "Highlight key insights and takeaways"
+
+**How AI Uses Prompt**:
+1. Sent to external clip identification API
+2. AI adjusts focus during analysis
+3. May affect virality scores
+4. Influences clip selection criteria
+
+**Default Behavior** (empty prompt):
+- AI uses general viral content detection
+- Looks for emotional peaks, engaging moments
+- Considers pacing, energy, and content variety
+
+## Videos List Page
+
+After submission, users are redirected to the videos list to track processing.
+
+**Location**: `/app/dashboard/clips/videos/page.tsx`
+
+### Key Features
+
+**Auto-Refresh**:
+```typescript
+useEffect(() => {
+  fetchVideos();
+  // Poll every 5 seconds for updates
+  const interval = setInterval(fetchVideos, 5000);
+  return () => clearInterval(interval);
+}, []);
+```
+
+Polls API every 5 seconds to check if clips have been identified.
+
+**Processing Indicator**:
+```typescript
+{video.totalClips === 0 && (
+  <Badge variant='secondary' className='w-full justify-center'>
+    Processing...
+  </Badge>
+)}
+```
+
+Shows "Processing..." badge when `totalClips` is 0 (not yet complete).
+
+**Video Cards**:
+- YouTube thumbnail preview
+- Video ID snippet
+- Creation timestamp
+- Clips count badge
+- Duration and language badges
+- Delete button (hover to show)
+
+**Empty State**:
+```tsx
+{videos.length === 0 ? (
+  <Card>
+    <CardContent className='flex flex-col items-center justify-center py-16'>
+      <Video className='text-muted-foreground mb-4 h-16 w-16' />
+      <h3 className='mb-2 text-xl font-semibold'>No videos yet</h3>
+      <p className='text-muted-foreground mb-4'>
+        Start by adding your first YouTube video
+      </p>
+      <Button onClick={() => router.push('/dashboard/clips')}>
+        <Plus className='mr-2 h-4 w-4' />
+        Add Video
+      </Button>
+    </CardContent>
+  </Card>
+) : (
+  // Video grid
+)}
+```
+
+Shows empty state with "Add Video" button if no videos exist.
+
+## Response Status Flow
+
+### Immediate Response
+```json
+{
+  "success": true,
+  "message": "Video processing started"
+}
+```
+
+User receives this instantly (< 100ms).
+
+### Background Processing
+1. Inngest receives event
+2. `identifyClips` function executes
+3. Video downloaded from YouTube
+4. Database record created
+5. External API analyzes video
+6. Clips saved to database
+7. Total clips count updated
+
+### Polling Updates
+- Frontend polls every 5 seconds
+- Checks if `totalClips > 0`
+- Updates UI when clips available
+- User can click to view details
+
+## Error Scenarios
+
+**Invalid URL**:
+- Caught by Zod validation
+- Returns 400 with error details
+- User sees toast notification
+
+**Unauthenticated**:
+- Returns 401 Unauthorized
+- User redirected to login
+
+**YouTube Video Unavailable**:
+- Error occurs in Inngest function
+- Video marked as failed in database
+- User sees processing error in UI
+
+**API Rate Limit**:
+- Handled by Inngest retry logic
+- Automatic exponential backoff
+- Eventually succeeds or fails after max retries
+
+**Network Timeout**:
+- Inngest handles timeouts
+- Retries automatically
+- Shows error if all retries fail
+
+## Best Practices
+
+**User Experience**:
+- Clear loading states during submission
+- Success feedback before redirect
+- Auto-refresh on videos page
+- Processing indicators for pending videos
+
+**Performance**:
+- Non-blocking API calls (Inngest)
+- Efficient polling (5-second intervals)
+- Lazy loading for video thumbnails
+
+**Error Handling**:
+- Validate before submission
+- Show specific error messages
+- Allow retry on failure
+- Graceful degradation
+
+**Security**:
+- Authenticate all requests
+- Validate input with Zod
+- User can only see own videos
+- Prevent injection attacks

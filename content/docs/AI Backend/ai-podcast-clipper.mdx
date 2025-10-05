@@ -1,0 +1,79 @@
+---
+title: "AI Podcast Clipper"
+---
+
+The `AiPodcastClipper` class is the main class that orchestrates the entire video processing workflow. It uses a Modal `cls` to define a containerized environment with the necessary dependencies and GPU resources.
+
+```python
+@app.cls(gpu="L40S", timeout=9000, retries=0, scaledown_window=300, secrets=[modal.Secret.from_name("jif-backend"), modal.Secret.from_name("sarvam-ai"), modal.Secret.from_name("huggingface"), modal.Secret.from_name("openrouter-api-key")], volumes={mount_path: volume})
+class AiPodcastClipper:
+    # ... (class methods)
+```
+
+### load_model
+
+The `load_model` method is executed when the Modal class is initialized. It loads the WhisperX model for transcription, the diarization pipeline for speaker identification, and initializes the OpenRouter and Sarvam AI clients.
+
+```python
+    @modal.enter()
+    def load_model(self):
+        # ... (implementation details)
+```
+
+### manual_speaker_assignment
+
+The `manual_speaker_assignment` method manually assigns speakers to word segments based on timestamp overlap with diarization segments. This is a fallback mechanism to improve speaker attribution.
+
+```python
+    def manual_speaker_assignment(self, result, diarize_segments):
+        """Manually assign speakers to word segments based on timestamp overlap"""
+        # ... (implementation details)
+```
+
+### transcribe_video_fast
+
+The `transcribe_video_fast` method performs a fast transcription of a video, skipping diarization and alignment for speed. This is used when only the transcript is needed to identify potential clips.
+
+```python
+    def transcribe_video_fast(self, base_dir: str, video_path: str) -> tuple[str, object, str]:
+        """Fast transcription for identify_clips - skips diarization and alignment"""
+        # ... (implementation details)
+```
+
+### transcribe_video
+
+The `transcribe_video` method performs a full transcription of a video, including speaker diarization and alignment for accurate timing and speaker attribution.
+
+```python
+    def transcribe_video(self, base_dir: str, video_path: str, target_language: Optional[str] = None) -> tuple[str, object, str]:
+        # ... (implementation details)
+```
+
+### identify_moments
+
+The `identify_moments` method uses a large language model (via OpenRouter) to identify compelling moments in a transcript that are suitable for creating viral clips.
+
+```python
+    def identify_moments(self, transcript: dict, source_language: str, custom_prompt: Optional[str] = None):
+        # ... (implementation details)
+```
+
+### process_video
+
+The `process_video` method is a FastAPI endpoint that processes a video from a YouTube URL or S3 key, identifies clips, and processes them according to the request parameters.
+
+```python
+    @modal.fastapi_endpoint(method="POST")
+    def process_video(self, request: ProcessVideoRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)):
+        # ... (implementation details)
+```
+
+### identify_clips
+
+The `identify_clips` method is a FastAPI endpoint that identifies potential clips from a video without processing them. It returns a list of identified moments with metadata.
+
+```python
+    @modal.fastapi_endpoint(method="POST")
+    def identify_clips(self, request: IdentifyClipsRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)):
+        # ... (implementation details)
+```

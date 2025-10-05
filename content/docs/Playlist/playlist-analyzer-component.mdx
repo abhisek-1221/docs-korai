@@ -1,0 +1,887 @@
+---
+title: Playlist Analyzer Component
+description: Detailed documentation of the main Playlist Analyzer UI component
+---
+
+## Overview
+
+The `AnalyzeViewPage` component is the main UI component for the Playlist Analyzer feature. It orchestrates the entire user experience, from URL input to displaying analyzed playlist data.
+
+## Location
+
+```
+/src/features/analyze/components/analyze-view-page.tsx
+```
+
+## Component Architecture
+
+```
+AnalyzeViewPage (Main Container)
+│
+├── PageContainer (Layout wrapper)
+│   └── Heading (Title and description)
+│
+├── Input Form Card
+│   ├── Input (Playlist URL)
+│   └── Toast (Analyze/Reset buttons with states)
+│
+├── FeatureCard (Welcome message - conditional)
+│
+└── Analysis Results (Conditional on data)
+    ├── Summary Grid
+    │   ├── Playlist Summary Card
+    │   │   ├── Total Videos
+    │   │   └── Total Duration
+    │   └── Filters Card
+    │       ├── Playback Speed Selector
+    │       ├── Sort By Selector
+    │       └── Range Selection
+    │
+    ├── Search Input
+    │
+    └── Video Grid Card
+        └── ScrollArea
+            └── VideoCard components (mapped)
+```
+
+## Complete Implementation
+
+```typescript
+'use client';
+
+import { useCallback } from 'react';
+import { motion } from 'framer-motion';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import {
+  Clock,
+  SortAsc,
+  PlayCircle,
+  FastForward,
+  Calendar
+} from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Toast } from '@/components/searchbar/toast';
+import { VideoCard } from '@/components/VideoCard';
+import FeatureCard from '@/components/hsr/FeatureCard';
+import { formatDuration } from '@/lib/ythelper';
+import PageContainer from '@/components/layout/page-container';
+import { Heading } from '@/components/ui/heading';
+import { useAnalyzeStore } from '../store/analyze-store';
+import { useFetchPlaylist, usePlaylistFilters } from '../hooks';
+import { validateYoutubePlaylistUrl } from '@/lib/youtube-validator';
+import { toast } from 'sonner';
+
+export default function AnalyzeViewPage() {
+  const {
+    playlistUrl,
+    playlistData,
+    rangeStart,
+    rangeEnd,
+    sortBy,
+    playbackSpeed,
+    searchQuery,
+    isLoading,
+    isSuccess,
+    setPlaylistUrl,
+    setRangeStart,
+    setRangeEnd,
+    setSortBy,
+    setPlaybackSpeed,
+    setSearchQuery,
+    setIsSuccess
+  } = useAnalyzeStore();
+
+  const { fetchPlaylist } = useFetchPlaylist();
+  const { sortedVideos, adjustedDuration, rangeOptions } = usePlaylistFilters();
+
+  const handleAnalyze = useCallback(() => {
+    // Check if URL is empty
+    if (!playlistUrl || !playlistUrl.trim()) {
+      toast.error('Please enter a YouTube playlist URL');
+      return;
+    }
+
+    // Validate YouTube playlist URL
+    const validation = validateYoutubePlaylistUrl(playlistUrl);
+
+    if (!validation.isValid) {
+      toast.error(
+        validation.error || 'Please enter a valid YouTube playlist URL'
+      );
+      return;
+    }
+
+    fetchPlaylist();
+  }, [fetchPlaylist, playlistUrl]);
+
+  const handleReset = useCallback(() => {
+    setIsSuccess(false);
+  }, [setIsSuccess]);
+
+  // Determine state for Toast component
+  const toastState = isLoading ? 'loading' : isSuccess ? 'success' : 'initial';
+
+  return (
+    <PageContainer scrollable>
+      <div className='w-full space-y-4'>
+        <div className='flex items-start justify-between'>
+          <Heading
+            title='Playlist Analyzer'
+            description='Analyze YouTube playlists and get insights'
+          />
+        </div>
+
+        {/* Input Form */}
+        <Card className='bg-background border-zinc-800'>
+          <CardContent className='p-4'>
+            <div className='flex space-x-2'>
+              <Input
+                type='text'
+                value={playlistUrl}
+                onChange={(e) => setPlaylistUrl(e.target.value)}
+                placeholder='Enter YouTube Playlist URL...'
+                className='flex-1'
+              />
+              <Toast
+                state={toastState}
+                onSave={handleAnalyze}
+                onReset={handleReset}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Welcome Message - Only shown initially */}
+        {!playlistData && <FeatureCard type='analyze' />}
+
+        {/* Analysis Results - Shown after data fetch */}
+        {playlistData && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className='space-y-4'
+          >
+            {/* Summary and Filters */}
+            <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
+              {/* Playlist Summary */}
+              <Card className='bg-background border-zinc-800'>
+                <CardContent className='p-4'>
+                  <h3 className='mb-4 text-lg font-bold'>Playlist Summary</h3>
+                  <div className='space-y-2'>
+                    <div className='flex items-center gap-2'>
+                      <PlayCircle className='h-4 w-4 text-blue-400' />
+                      <span className='font-semibold'>
+                        Total Videos: {playlistData.totalVideos}
+                      </span>
+                    </div>
+                    <div className='flex items-center gap-2'>
+                      <Clock className='h-4 w-4 text-green-500' />
+                      <span className='font-semibold'>
+                        Total Duration: {formatDuration(adjustedDuration)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Filters Card */}
+              <Card className='bg-background border-zinc-800'>
+                <CardContent className='p-4'>
+                  <h3 className='mb-4 text-lg font-semibold'>Filters</h3>
+                  <div className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+                    {/* Playback Speed */}
+                    <div className='flex items-center gap-2'>
+                      <FastForward className='h-4 w-4 text-purple-400' />
+                      <Select
+                        value={playbackSpeed}
+                        onValueChange={setPlaybackSpeed}
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='Speed' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[
+                            '0.25',
+                            '0.5',
+                            '0.75',
+                            '1',
+                            '1.25',
+                            '1.5',
+                            '1.75',
+                            '2'
+                          ].map((speed) => (
+                            <SelectItem key={speed} value={speed}>
+                              {speed}x
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Sort By */}
+                    <div className='flex items-center gap-2'>
+                      <SortAsc className='h-4 w-4 text-orange-400' />
+                      <Select value={sortBy} onValueChange={setSortBy}>
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='Sort' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[
+                            'Position',
+                            'Duration',
+                            'Views',
+                            'Likes',
+                            'Publish Date'
+                          ].map((option) => (
+                            <SelectItem
+                              key={option}
+                              value={option.toLowerCase()}
+                            >
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Range Selection */}
+                    <div className='flex items-center gap-2 sm:col-span-2 lg:col-span-1'>
+                      <Calendar className='h-4 w-4 text-red-400' />
+                      <Select value={rangeStart} onValueChange={setRangeStart}>
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='Start' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {rangeOptions.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className='text-muted-foreground'>-</span>
+                      <Select value={rangeEnd} onValueChange={setRangeEnd}>
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='End' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {rangeOptions.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <p className='text-muted-foreground mt-3 text-sm'>
+                    Analyzing videos {rangeStart} to {rangeEnd} at speed:{' '}
+                    {playbackSpeed}x
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Search Bar */}
+            <div className='flex justify-center'>
+              <Input
+                className='w-full max-w-md'
+                placeholder='Search videos...'
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* Video Grid */}
+            <Card className='bg-background border-zinc-800'>
+              <CardContent className='p-4'>
+                <ScrollArea className='h-[500px]'>
+                  <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+                    {sortedVideos.map((video) => (
+                      <VideoCard
+                        key={video.id}
+                        video={video}
+                        searchQuery={searchQuery}
+                      />
+                    ))}
+                  </div>
+                  {sortedVideos.length === 0 && (
+                    <div className='text-muted-foreground py-8 text-center'>
+                      No videos found matching your criteria
+                    </div>
+                  )}
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </div>
+    </PageContainer>
+  );
+}
+```
+
+## Component Sections
+
+### 1. Header Section
+
+```typescript
+<div className='flex items-start justify-between'>
+  <Heading
+    title='Playlist Analyzer'
+    description='Analyze YouTube playlists and get insights'
+  />
+</div>
+```
+
+**Purpose:** Displays the page title and description.
+
+---
+
+### 2. Input Form Section
+
+```typescript
+<Card className='bg-background border-zinc-800'>
+  <CardContent className='p-4'>
+    <div className='flex space-x-2'>
+      <Input
+        type='text'
+        value={playlistUrl}
+        onChange={(e) => setPlaylistUrl(e.target.value)}
+        placeholder='Enter YouTube Playlist URL...'
+        className='flex-1'
+      />
+      <Toast
+        state={toastState}
+        onSave={handleAnalyze}
+        onReset={handleReset}
+      />
+    </div>
+  </CardContent>
+</Card>
+```
+
+**Features:**
+- Full-width input for playlist URL
+- Toast component with state-based button behavior:
+  - **Initial**: Shows "Analyze" button
+  - **Loading**: Shows loading spinner
+  - **Success**: Shows success checkmark and "Reset" button
+
+**State Management:**
+```typescript
+const toastState = isLoading ? 'loading' : isSuccess ? 'success' : 'initial';
+```
+
+---
+
+### 3. Welcome Message (Conditional)
+
+```typescript
+{!playlistData && <FeatureCard type='analyze' />}
+```
+
+**Purpose:** Shows welcome message and feature description when no playlist is loaded.
+
+**Condition:** Only rendered when `playlistData` is null.
+
+---
+
+### 4. Analysis Results Section (Conditional)
+
+Rendered only after successful playlist fetch:
+
+```typescript
+{playlistData && (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    className='space-y-4'
+  >
+    {/* Content */}
+  </motion.div>
+)}
+```
+
+**Animation:** Fades in with Framer Motion when data loads.
+
+---
+
+### 4a. Playlist Summary Card
+
+```typescript
+<Card className='bg-background border-zinc-800'>
+  <CardContent className='p-4'>
+    <h3 className='mb-4 text-lg font-bold'>Playlist Summary</h3>
+    <div className='space-y-2'>
+      <div className='flex items-center gap-2'>
+        <PlayCircle className='h-4 w-4 text-blue-400' />
+        <span className='font-semibold'>
+          Total Videos: {playlistData.totalVideos}
+        </span>
+      </div>
+      <div className='flex items-center gap-2'>
+        <Clock className='h-4 w-4 text-green-500' />
+        <span className='font-semibold'>
+          Total Duration: {formatDuration(adjustedDuration)}
+        </span>
+      </div>
+    </div>
+  </CardContent>
+</Card>
+```
+
+**Displays:**
+- Total number of videos in playlist
+- Total duration (adjusted for playback speed)
+- Icons for visual clarity
+
+---
+
+### 4b. Filters Card
+
+Contains three filter controls in a responsive grid:
+
+#### Playback Speed Selector
+
+```typescript
+<div className='flex items-center gap-2'>
+  <FastForward className='h-4 w-4 text-purple-400' />
+  <Select value={playbackSpeed} onValueChange={setPlaybackSpeed}>
+    <SelectTrigger className='w-full'>
+      <SelectValue placeholder='Speed' />
+    </SelectTrigger>
+    <SelectContent>
+      {['0.25', '0.5', '0.75', '1', '1.25', '1.5', '1.75', '2'].map((speed) => (
+        <SelectItem key={speed} value={speed}>
+          {speed}x
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+</div>
+```
+
+**Options:** 0.25x, 0.5x, 0.75x, 1x, 1.25x, 1.5x, 1.75x, 2x
+
+**Effect:** Adjusts total duration calculation based on selected speed.
+
+#### Sort By Selector
+
+```typescript
+<div className='flex items-center gap-2'>
+  <SortAsc className='h-4 w-4 text-orange-400' />
+  <Select value={sortBy} onValueChange={setSortBy}>
+    <SelectTrigger className='w-full'>
+      <SelectValue placeholder='Sort' />
+    </SelectTrigger>
+    <SelectContent>
+      {['Position', 'Duration', 'Views', 'Likes', 'Publish Date'].map((option) => (
+        <SelectItem key={option} value={option.toLowerCase()}>
+          {option}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+</div>
+```
+
+**Options:** Position, Duration, Views, Likes, Publish Date
+
+**Effect:** Reorders videos based on selected criteria.
+
+#### Range Selection
+
+```typescript
+<div className='flex items-center gap-2 sm:col-span-2 lg:col-span-1'>
+  <Calendar className='h-4 w-4 text-red-400' />
+  <Select value={rangeStart} onValueChange={setRangeStart}>
+    <SelectTrigger className='w-full'>
+      <SelectValue placeholder='Start' />
+    </SelectTrigger>
+    <SelectContent>
+      {rangeOptions.map((option) => (
+        <SelectItem key={option} value={option}>
+          {option}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+  <span className='text-muted-foreground'>-</span>
+  <Select value={rangeEnd} onValueChange={setRangeEnd}>
+    <SelectTrigger className='w-full'>
+      <SelectValue placeholder='End' />
+    </SelectTrigger>
+    <SelectContent>
+      {rangeOptions.map((option) => (
+        <SelectItem key={option} value={option}>
+          {option}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+</div>
+```
+
+**Options:** 1 to total videos (dynamically generated)
+
+**Effect:** Filters videos to show only selected range.
+
+#### Filter Status Text
+
+```typescript
+<p className='text-muted-foreground mt-3 text-sm'>
+  Analyzing videos {rangeStart} to {rangeEnd} at speed: {playbackSpeed}x
+</p>
+```
+
+Shows current filter settings in plain text.
+
+---
+
+### 4c. Search Bar
+
+```typescript
+<div className='flex justify-center'>
+  <Input
+    className='w-full max-w-md'
+    placeholder='Search videos...'
+    value={searchQuery}
+    onChange={(e) => setSearchQuery(e.target.value)}
+  />
+</div>
+```
+
+**Features:**
+- Real-time search as user types
+- Case-insensitive matching
+- Searches video titles
+- Centered with max-width constraint
+
+---
+
+### 4d. Video Grid
+
+```typescript
+<Card className='bg-background border-zinc-800'>
+  <CardContent className='p-4'>
+    <ScrollArea className='h-[500px]'>
+      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'>
+        {sortedVideos.map((video) => (
+          <VideoCard
+            key={video.id}
+            video={video}
+            searchQuery={searchQuery}
+          />
+        ))}
+      </div>
+      {sortedVideos.length === 0 && (
+        <div className='text-muted-foreground py-8 text-center'>
+          No videos found matching your criteria
+        </div>
+      )}
+    </ScrollArea>
+  </CardContent>
+</Card>
+```
+
+**Features:**
+- Responsive grid layout (1/2/3 columns)
+- Fixed height with scrolling for large playlists
+- Empty state message when no videos match filters
+- Search query passed to VideoCard for highlighting
+
+---
+
+## Event Handlers
+
+### handleAnalyze
+
+```typescript
+const handleAnalyze = useCallback(() => {
+  // Check if URL is empty
+  if (!playlistUrl || !playlistUrl.trim()) {
+    toast.error('Please enter a YouTube playlist URL');
+    return;
+  }
+
+  // Validate YouTube playlist URL
+  const validation = validateYoutubePlaylistUrl(playlistUrl);
+
+  if (!validation.isValid) {
+    toast.error(
+      validation.error || 'Please enter a valid YouTube playlist URL'
+    );
+    return;
+  }
+
+  fetchPlaylist();
+}, [fetchPlaylist, playlistUrl]);
+```
+
+**Purpose:** Validates URL and triggers playlist fetch.
+
+**Validation Steps:**
+1. Check for empty/whitespace-only input
+2. Validate YouTube playlist URL format
+3. Call `fetchPlaylist` hook if valid
+
+**Error Handling:** Shows toast notifications for validation errors.
+
+**Memoization:** Wrapped in `useCallback` to prevent unnecessary re-renders.
+
+---
+
+### handleReset
+
+```typescript
+const handleReset = useCallback(() => {
+  setIsSuccess(false);
+}, [setIsSuccess]);
+```
+
+**Purpose:** Resets success state to hide success animation.
+
+**Trigger:** Called when user clicks reset button after successful analysis.
+
+---
+
+## Responsive Design
+
+### Mobile (< 640px)
+- Single column layout
+- Full-width inputs and selects
+- Stacked filter controls
+- 1 video per row in grid
+
+### Tablet (640px - 1024px)
+- 2-column grid for summary/filters
+- 2 videos per row in grid
+- Filter controls in 2 columns
+
+### Desktop (> 1024px)
+- 2-column grid for summary/filters
+- 3 filter controls in one row
+- 3 videos per row in grid
+
+### Responsive Grid Classes
+
+```typescript
+// Summary/Filters grid
+className='grid grid-cols-1 gap-4 lg:grid-cols-2'
+
+// Filter controls grid
+className='grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'
+
+// Video grid
+className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3'
+```
+
+---
+
+## Animations
+
+### Fade-in Animation (Framer Motion)
+
+```typescript
+<motion.div
+  initial={{ opacity: 0 }}
+  animate={{ opacity: 1 }}
+  className='space-y-4'
+>
+```
+
+**Effect:** Results section fades in smoothly when playlist loads.
+
+**Duration:** Default (300ms)
+
+### Video Card Animations
+
+Individual VideoCard components have their own animations:
+- Fade in with slight upward movement
+- Hover lift effect
+- Smooth transitions
+
+---
+
+## State Flow Diagram
+
+```
+User enters URL
+    ↓
+handleAnalyze triggered
+    ↓
+Validation
+    ↓ (valid)
+fetchPlaylist (hook)
+    ↓
+API call
+    ↓
+Store updated
+    ↓
+usePlaylistFilters processes data
+    ↓
+Component re-renders with results
+    ↓
+User applies filters
+    ↓
+usePlaylistFilters recalculates
+    ↓
+Video grid updates
+```
+
+---
+
+## Performance Optimizations
+
+### 1. Memoized Callbacks
+
+```typescript
+const handleAnalyze = useCallback(() => {
+  // ...
+}, [fetchPlaylist, playlistUrl]);
+```
+
+Prevents function recreation on every render.
+
+### 2. Conditional Rendering
+
+```typescript
+{!playlistData && <FeatureCard />}
+{playlistData && <Results />}
+```
+
+Only renders necessary sections.
+
+### 3. Memoized Filters
+
+All filtering/sorting happens in `usePlaylistFilters` with `useMemo`.
+
+### 4. Virtual Scrolling
+
+ScrollArea component handles large video lists efficiently.
+
+### 5. Key Props
+
+```typescript
+{sortedVideos.map((video) => (
+  <VideoCard key={video.id} video={video} />
+))}
+```
+
+Proper keys for React reconciliation.
+
+---
+
+## Accessibility Features
+
+### Semantic HTML
+- Proper heading hierarchy (h1 → h3)
+- Form controls with labels (via placeholder)
+- Button roles (Toast component)
+
+### Keyboard Navigation
+- Tab through inputs and selects
+- Enter to submit form
+- Arrow keys in dropdowns
+
+### Screen Readers
+- Descriptive placeholders
+- Icon + text labels
+- Status messages (toast notifications)
+
+### Visual Feedback
+- Loading states
+- Success/error animations
+- Hover states on interactive elements
+
+---
+
+## Dependencies
+
+### UI Components (Shadcn/ui)
+- `Card`, `CardContent`
+- `Input`
+- `Select`, `SelectContent`, `SelectItem`, `SelectTrigger`, `SelectValue`
+- `ScrollArea`
+- `Heading`
+
+### Custom Components
+- `PageContainer` - Layout wrapper
+- `Toast` - Action button with states
+- `VideoCard` - Individual video display
+- `FeatureCard` - Welcome message
+
+### External Libraries
+- `framer-motion` - Animations
+- `lucide-react` - Icons
+- `sonner` - Toast notifications
+
+### Internal Modules
+- `useAnalyzeStore` - State management
+- `useFetchPlaylist` - Data fetching
+- `usePlaylistFilters` - Data processing
+- `validateYoutubePlaylistUrl` - URL validation
+- `formatDuration` - Time formatting
+
+---
+
+## Usage Example
+
+```typescript
+// In your Next.js app router
+// app/dashboard/analyze/page.tsx
+
+import AnalyzeViewPage from '@/features/analyze/components/analyze-view-page';
+
+export default function AnalyzePage() {
+  return <AnalyzeViewPage />;
+}
+```
+
+That's it! The component is completely self-contained.
+
+---
+
+## Customization
+
+### Changing Colors
+
+```typescript
+// Icon colors
+<PlayCircle className='h-4 w-4 text-blue-400' />    // Change text-blue-400
+<Clock className='h-4 w-4 text-green-500' />        // Change text-green-500
+<FastForward className='h-4 w-4 text-purple-400' /> // Change text-purple-400
+```
+
+### Adjusting Grid Breakpoints
+
+```typescript
+// Video grid
+className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+//                                                            ^^^ Add 4-column for xl screens
+```
+
+### Changing ScrollArea Height
+
+```typescript
+<ScrollArea className='h-[500px]'> // Change to h-[600px], h-[700px], etc.
+```
+
+---
+
+## Related Documentation
+
+- [Playlist Analyzer Overview](/docs/playlist-analyzer-overview)
+- [Playlist Analyzer Store](/docs/playlist-analyzer-store)
+- [Playlist Analyzer Hooks](/docs/playlist-analyzer-hooks)
+- [VideoCard Component](/docs/video-card-component)

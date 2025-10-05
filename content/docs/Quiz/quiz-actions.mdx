@@ -1,0 +1,396 @@
+---
+title: Quiz Actions Hook
+description: User interaction handlers for quiz functionality
+---
+
+# Quiz Actions Hook
+
+The `useQuizActions` hook provides all user interaction handlers for the quiz feature including answer selection, quiz submission, retry functionality, and export actions (copy and download).
+
+## Implementation
+
+```typescript
+import { useCallback } from 'react';
+import { useToast } from '@/hooks/use-toast';
+import { useQuizStore } from '../store/quiz-store';
+
+export const useQuizActions = () => {
+  const { toast } = useToast();
+  const {
+    quiz,
+    userAnswers,
+    videoDetails,
+    updateUserAnswer,
+    setIsSubmitted,
+    setScore,
+    setUserAnswers,
+    setHasCopied
+  } = useQuizStore();
+
+  const handleAnswerSelect = useCallback(
+    (questionId: string, selectedOption: number, isSubmitted: boolean) => {
+      if (isSubmitted) return;
+      updateUserAnswer(questionId, selectedOption);
+    },
+    [updateUserAnswer]
+  );
+
+  const handleQuizSubmit = useCallback(() => {
+    console.log('Submit quiz clicked');
+    console.log('Quiz questions:', quiz.length);
+    console.log('User answers:', userAnswers);
+
+    const allAnswered = userAnswers.every(
+      (answer) => answer.selectedOption !== -1
+    );
+
+    console.log('All questions answered?', allAnswered);
+
+    if (!allAnswered) {
+      const unanswered = userAnswers.filter(
+        (a) => a.selectedOption === -1
+      ).length;
+      toast({
+        title: 'Warning',
+        description: `Please answer all questions before submitting (${unanswered} unanswered)`,
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    let correctCount = 0;
+    quiz.forEach((question) => {
+      const userAnswer = userAnswers.find(
+        (answer) => answer.questionId === question.id
+      );
+      if (userAnswer && userAnswer.selectedOption === question.correctAnswer) {
+        correctCount++;
+      }
+    });
+
+    console.log('Score calculated:', correctCount, '/', quiz.length);
+
+    setScore(correctCount);
+    setIsSubmitted(true);
+
+    toast({
+      title: 'Quiz Completed!',
+      description: `You scored ${correctCount}/${quiz.length}`,
+      variant: 'default'
+    });
+  }, [quiz, userAnswers, toast, setScore, setIsSubmitted]);
+
+  const handleRetry = useCallback(() => {
+    setUserAnswers(
+      quiz.map((q) => ({
+        questionId: q.id,
+        selectedOption: -1
+      }))
+    );
+    setIsSubmitted(false);
+    setScore(0);
+  }, [quiz, setUserAnswers, setIsSubmitted, setScore]);
+
+  const handleCopy = useCallback(async () => {
+    const quizText = quiz
+      .map(
+        (q, i) =>
+          `Question ${i + 1}: ${q.question}\n${q.options
+            .map((opt, j) => `${String.fromCharCode(65 + j)}. ${opt}`)
+            .join(
+              '\n'
+            )}\nCorrect Answer: ${String.fromCharCode(65 + q.correctAnswer)}\n`
+      )
+      .join('\n');
+
+    await navigator.clipboard.writeText(quizText);
+    setHasCopied(true);
+
+    toast({
+      title: 'Success',
+      description: 'Quiz copied to clipboard',
+      variant: 'default'
+    });
+
+    setTimeout(() => setHasCopied(false), 2000);
+  }, [quiz, toast, setHasCopied]);
+
+  const handleDownload = useCallback(() => {
+    const quizText = quiz
+      .map(
+        (q, i) =>
+          `Question ${i + 1}: ${q.question}\n${q.options
+            .map((opt, j) => `${String.fromCharCode(65 + j)}. ${opt}`)
+            .join(
+              '\n'
+            )}\nCorrect Answer: ${String.fromCharCode(65 + q.correctAnswer)}\n`
+      )
+      .join('\n');
+
+    const element = document.createElement('a');
+    const file = new Blob([quizText], { type: 'text/plain' });
+    element.href = URL.createObjectURL(file);
+    element.download = `quiz-${videoDetails?.title || 'video'}.txt`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+    URL.revokeObjectURL(element.href);
+
+    toast({
+      title: 'Success',
+      description: 'Quiz downloaded successfully',
+      variant: 'default'
+    });
+  }, [quiz, videoDetails, toast]);
+
+  return {
+    handleAnswerSelect,
+    handleQuizSubmit,
+    handleRetry,
+    handleCopy,
+    handleDownload
+  };
+};
+```
+
+## Actions
+
+### handleAnswerSelect(questionId, selectedOption, isSubmitted)
+
+Handles user clicking an option to select their answer.
+
+**Parameters**:
+- `questionId`: ID of the question being answered
+- `selectedOption`: Index of the selected option (0-3)
+- `isSubmitted`: Whether quiz has been submitted
+
+**Process**:
+1. Checks if quiz is already submitted
+2. Returns early if submitted (prevents answer changes)
+3. Calls `updateUserAnswer(questionId, selectedOption)` to update store
+4. Store updates the specific answer in `userAnswers` array
+
+**Called From**: Option button click handler in component
+
+**Example**:
+```typescript
+onClick={() => handleAnswerSelect(question.id, optionIndex, isSubmitted)}
+```
+
+---
+
+### handleQuizSubmit()
+
+Validates all questions are answered, calculates score, and submits the quiz.
+
+**Process**:
+
+**Step 1: Logging (Debug)**
+- Logs submit event
+- Logs question count
+- Logs user answers array
+
+**Step 2: Validation**
+- Checks all answers with `.every()`:
+  ```typescript
+  const allAnswered = userAnswers.every(
+    (answer) => answer.selectedOption !== -1
+  );
+  ```
+- If not all answered:
+  - Counts unanswered questions: `.filter(a => a.selectedOption === -1).length`
+  - Shows warning toast with unanswered count
+  - Returns early without submitting
+
+**Step 3: Score Calculation**
+- Initializes `correctCount` to 0
+- Loops through each quiz question
+- Finds matching user answer by question ID
+- Compares `userAnswer.selectedOption` with `question.correctAnswer`
+- Increments `correctCount` if match
+- Logs calculated score
+
+**Step 4: Update State**
+- Calls `setScore(correctCount)`
+- Calls `setIsSubmitted(true)` to lock quiz
+
+**Step 5: Success Feedback**
+- Shows success toast with score: "You scored X/Y"
+- Toast appears at bottom of screen
+
+**Effect**:
+- Quiz becomes read-only
+- Score badge appears in header
+- Color-coded indicators show on questions
+- Explanations become visible
+- Submit button disappears
+- Retry button appears
+
+---
+
+### handleRetry()
+
+Resets user answers to retake the quiz without regenerating questions.
+
+**Process**:
+1. Creates new user answers array:
+   - Maps over `quiz` questions
+   - Creates answer object with `questionId` and `selectedOption: -1` for each
+2. Calls `setUserAnswers()` with new array
+3. Calls `setIsSubmitted(false)` to unlock quiz
+4. Calls `setScore(0)` to reset score
+
+**Effect**:
+- All selected options cleared
+- Quiz becomes interactive again
+- Score badge disappears
+- Color-coded indicators removed
+- Explanations hidden
+- Retry button hidden
+- Submit button reappears
+
+**Preserves**:
+- Quiz questions (no regeneration needed)
+- Video details
+- All other state
+
+---
+
+### handleCopy()
+
+Copies formatted quiz text to clipboard.
+
+**Process**:
+
+**Step 1: Format Quiz Text**
+Maps over quiz questions to create formatted string:
+
+```
+Question 1: What is React?
+A. A programming language
+B. A JavaScript library
+C. A database
+D. An operating system
+Correct Answer: B
+
+Question 2: What is JSX?
+...
+```
+
+**Formatting Logic**:
+- Question header: `Question ${i + 1}: ${q.question}`
+- Options: Map with letter prefix
+  - `String.fromCharCode(65 + j)` converts 0→A, 1→B, 2→C, 3→D
+  - Format: `A. Option text`
+- Correct answer: Letter prefix of correct option
+- Separator: Single newline between options, double between questions
+
+**Step 2: Copy to Clipboard**
+- Uses `navigator.clipboard.writeText(quizText)`
+- Async operation (awaited)
+
+**Step 3: Feedback**
+- Sets `hasCopied` to `true` (changes icon to checkmark)
+- Shows success toast
+- Sets timeout to reset `hasCopied` after 2 seconds
+
+**Called From**: Copy button in quiz header
+
+---
+
+### handleDownload()
+
+Downloads quiz as a text file.
+
+**Process**:
+
+**Step 1: Format Quiz Text**
+- Uses identical formatting logic as `handleCopy()`
+- Same output format for consistency
+
+**Step 2: Create Download**
+- Creates hidden anchor element: `document.createElement('a')`
+- Creates Blob from text content:
+  ```typescript
+  const file = new Blob([quizText], { type: 'text/plain' });
+  ```
+- Creates object URL from Blob
+- Sets anchor `href` to object URL
+- Sets `download` attribute to filename:
+  - Format: `quiz-${videoTitle}.txt`
+  - Fallback: `quiz-video.txt` if no title
+
+**Step 3: Trigger Download**
+- Appends anchor to document body
+- Programmatically clicks anchor (triggers download)
+- Removes anchor from DOM
+- Revokes object URL to free memory
+
+**Step 4: Success Feedback**
+- Shows success toast
+
+**Called From**: Download button in quiz header
+
+---
+
+## Return Value
+
+The hook returns an object with all five handlers:
+
+```typescript
+{
+  handleAnswerSelect,    // Select option
+  handleQuizSubmit,      // Submit quiz
+  handleRetry,           // Reset answers
+  handleCopy,            // Copy to clipboard
+  handleDownload         // Download file
+}
+```
+
+All handlers are wrapped with `useCallback` to maintain stable references and prevent unnecessary re-renders.
+
+## Usage in Component
+
+```typescript
+const {
+  handleAnswerSelect,
+  handleQuizSubmit,
+  handleRetry,
+  handleCopy,
+  handleDownload
+} = useQuizActions();
+
+// Answer selection
+<button onClick={() => handleAnswerSelect(question.id, optionIndex, isSubmitted)}>
+  Option A
+</button>
+
+// Submit
+<Button onClick={handleQuizSubmit}>Submit Quiz</Button>
+
+// Retry
+<Button onClick={handleRetry}>
+  <RotateCcw className='h-4 w-4' />
+</Button>
+
+// Copy
+<Button onClick={handleCopy}>
+  {hasCopied ? <Check /> : <Copy />}
+</Button>
+
+// Download
+<Button onClick={handleDownload}>
+  <Download className='h-4 w-4' />
+</Button>
+```
+
+## Console Logging
+
+The `handleQuizSubmit` function includes debug logging:
+- Submit event triggered
+- Question count
+- User answers array
+- Completion status
+- Calculated score
+
+These logs help with debugging quiz submission issues and can be removed in production if desired.

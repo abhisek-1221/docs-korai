@@ -1,0 +1,240 @@
+---
+title: Transcript Store
+description: Zustand store managing transcript feature state
+---
+
+# Transcript Store
+
+The transcript store is a Zustand store that manages all state for the Generate Transcript feature. It handles video URL input, video metadata, transcript data, search queries, UI toggles, and the YouTube player instance.
+
+## Store Implementation
+
+```typescript
+import { create } from 'zustand';
+
+export interface TranscriptSegment {
+  text: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface VideoDetails {
+  id: string;
+  title: string;
+  description: string;
+  thumbnails: {
+    maxres?: { url: string };
+    high?: { url: string };
+    medium?: { url: string };
+  };
+  channelTitle: string;
+  publishedAt: string;
+  duration: number;
+  viewCount: number;
+  likeCount: number;
+}
+
+interface TranscribeState {
+  videoUrl: string;
+  videoDetails: VideoDetails | null;
+  transcriptData: TranscriptSegment[];
+  searchQuery: string;
+  showFullDescription: boolean;
+  youtubePlayer: any;
+  isLoading: boolean;
+  isSuccess: boolean;
+}
+
+interface TranscribeActions {
+  setVideoUrl: (url: string) => void;
+  setVideoDetails: (details: VideoDetails | null) => void;
+  setTranscriptData: (data: TranscriptSegment[]) => void;
+  setSearchQuery: (query: string) => void;
+  setShowFullDescription: (show: boolean) => void;
+  setYoutubePlayer: (player: any) => void;
+  setIsLoading: (loading: boolean) => void;
+  setIsSuccess: (success: boolean) => void;
+  reset: () => void;
+}
+
+const initialState: TranscribeState = {
+  videoUrl: '',
+  videoDetails: null,
+  transcriptData: [],
+  searchQuery: '',
+  showFullDescription: false,
+  youtubePlayer: null,
+  isLoading: false,
+  isSuccess: false
+};
+
+export const useTranscribeStore = create<TranscribeState & TranscribeActions>(
+  (set) => ({
+    ...initialState,
+    setVideoUrl: (url) => set({ videoUrl: url }),
+    setVideoDetails: (details) => set({ videoDetails: details }),
+    setTranscriptData: (data) => set({ transcriptData: data }),
+    setSearchQuery: (query) => set({ searchQuery: query }),
+    setShowFullDescription: (show) => set({ showFullDescription: show }),
+    setYoutubePlayer: (player) => set({ youtubePlayer: player }),
+    setIsLoading: (loading) => set({ isLoading: loading }),
+    setIsSuccess: (success) => set({ isSuccess: success }),
+    reset: () => set(initialState)
+  })
+);
+```
+
+## State Properties
+
+### `videoUrl: string`
+Stores the YouTube video URL entered by the user. Updated through the input field in the UI.
+
+**Initial Value**: `''`
+
+**Usage**:
+```typescript
+const { videoUrl, setVideoUrl } = useTranscribeStore();
+setVideoUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+```
+
+### `videoDetails: VideoDetails | null`
+Contains all metadata for the current video including ID, title, description, thumbnails, channel info, publish date, duration, view count, and like count.
+
+**Initial Value**: `null`
+
+**Set After**: Successful fetch from `/api/videoDetail`
+
+### `transcriptData: TranscriptSegment[]`
+Array of transcript segments. Each segment contains text, start time, and end time.
+
+**Initial Value**: `[]`
+
+**Populated From**: `/api/transcribe` endpoint response
+
+**Example Data**:
+```typescript
+[
+  {
+    text: "Welcome to this video",
+    startTime: "0:00",
+    endTime: "0:03"
+  },
+  {
+    text: "Today we'll be discussing...",
+    startTime: "0:03",
+    endTime: "0:07"
+  }
+]
+```
+
+### `searchQuery: string`
+Filter text for searching through transcript segments. Used to filter `transcriptData` in real-time.
+
+**Initial Value**: `''`
+
+**Usage**: Filters transcript segments where `entry.text` includes the query (case-insensitive)
+
+### `showFullDescription: boolean`
+Toggle state for expanding/collapsing video description. Controls whether full description is shown or line-clamped to 2 lines.
+
+**Initial Value**: `false`
+
+**Toggled By**: "Show more/Show less" button in video details card
+
+### `youtubePlayer: any`
+Reference to the YouTube IFrame Player instance. Used for controlling video playback (play, pause, seek).
+
+**Initial Value**: `null`
+
+**Set When**: YouTube player is initialized after video details are fetched
+
+**Used For**: Seeking to timestamp when clicking transcript segments
+
+### `isLoading: boolean`
+Loading state during API requests. Controls loading spinner/animation in the submit button.
+
+**Initial Value**: `false`
+
+**Set to `true`**: When fetch operation starts
+
+**Set to `false`**: When fetch completes (success or error)
+
+### `isSuccess: boolean`
+Success state for UI feedback. Shows success animation in the fancy button.
+
+**Initial Value**: `false`
+
+**Flow**:
+1. Set to `true` after successful transcript fetch
+2. Automatically reset to `false` after 4 seconds using `setTimeout`
+
+## Actions
+
+### `setVideoUrl(url: string)`
+Updates the `videoUrl` state with user input.
+
+**Called From**: Input field `onChange` handler
+
+### `setVideoDetails(details: VideoDetails | null)`
+Stores video metadata after fetching from YouTube API.
+
+**Called From**: `useFetchTranscript` hook after successful API call
+
+### `setTranscriptData(data: TranscriptSegment[])`
+Stores transcript segments array.
+
+**Called From**: `useFetchTranscript` hook after processing API response
+
+### `setSearchQuery(query: string)`
+Updates search filter text.
+
+**Called From**: Search input field in timestamped transcript section
+
+### `setShowFullDescription(show: boolean)`
+Toggles video description expansion.
+
+**Called From**: Show more/less button click handler
+
+### `setYoutubePlayer(player: any)`
+Stores YouTube player instance reference.
+
+**Called From**: `useYoutubePlayer` hook after player initialization
+
+### `setIsLoading(loading: boolean)`
+Controls loading state during API operations.
+
+**Called From**: `useFetchTranscript` hook (start and end of fetch)
+
+### `setIsSuccess(success: boolean)`
+Controls success feedback animation.
+
+**Called From**: `useFetchTranscript` hook after successful fetch
+
+### `reset()`
+Resets all state to initial values.
+
+**Usage**: Called when clearing form or navigating away from feature
+
+## Accessing Store Outside React
+
+The store can be accessed outside React components using `getState()`:
+
+```typescript
+const player = useTranscribeStore.getState().youtubePlayer;
+if (player) {
+  player.seekTo(timeInSeconds);
+}
+```
+
+This is used in the `handleTimestampClick` callback to access the player instance without re-renders.
+
+## Store Organization
+
+The store follows a clear separation:
+- **TranscriptSegment**: Type for individual transcript entries
+- **VideoDetails**: Type for video metadata
+- **TranscribeState**: All state properties
+- **TranscribeActions**: All action functions
+- **initialState**: Default values for reset functionality
+
+This structure makes the store easy to understand, type-safe, and maintainable.

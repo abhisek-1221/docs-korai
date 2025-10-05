@@ -1,0 +1,187 @@
+---
+title: "Speech Synthesis"
+---
+
+This document provides a detailed explanation of the speech synthesis functions in the AI backend. These functions are responsible for converting text into speech using different services.
+
+### synthesize_speech_polly
+
+The `synthesize_speech_polly` function synthesizes speech from text using the AWS Polly service.
+
+```python
+def synthesize_speech_polly(text: str, target_language: str, voice_id: str) -> bytes:
+    """Synthesize speech using AWS Polly"""
+    polly_client = boto3.client(
+        'polly',
+        region_name='us-west-2',
+        aws_access_key_id='AKIA4MTWHYPUQPV3OP6A',
+        aws_secret_access_key='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'
+    )
+    
+    # Map language codes to Polly language codes
+    lang_map = {
+        "es-ES": "es-ES", "fr-FR": "fr-FR", "de-DE": "de-DE", "it-IT": "it-IT",
+        "pt-BR": "pt-BR", "ja-JP": "ja-JP", "ko-KR": "ko-KR", "zh-CN": "cmn-CN",
+        "ar-SA": "arb", "en": "en-US", "en-GB": "en-GB", "ru-RU": "ru-RU",
+        "nl-NL": "nl-NL", "sv-SE": "sv-SE", "da-DK": "da-DK", "no-NO": "nb-NO",
+        "fi-FI": "fi-FI", "pl-PL": "pl-PL"
+    }
+    
+    # Voices that require the neural engine
+    neural_voices = {
+        "Sergio", "Enrique", "Conchita", "Lucia", "Lupe", "Penelope", "Miguel",  # Spanish
+        "Lea", "Remy", "Mathieu", "Celine",  # French
+        "Daniel", "Vicki", "Hans", "Marlene",  # German
+        "Bianca", "Giorgio", "Carla",  # Italian
+        "Thiago", "Camila", "Ricardo", "Vitoria",  # Portuguese
+        "Matthew", "Joanna", "Kendra", "Kimberly", "Salli", "Joey", "Justin", "Ivy",  # English US
+        "Arthur", "Amy", "Brian", "Emma",  # English GB
+        "Takumi", "Mizuki", "Seoyeon", "Tomoko",  # Japanese/Korean
+        "Zhiyu", "Kangkang",  # Chinese
+        "Zeina", "Hala"  # Arabic
+    }
+    
+    polly_lang = lang_map.get(target_language, "en-US")
+    
+    try:
+        # Try neural engine first for better quality, fall back to standard if it fails
+        engine = "neural" if voice_id in neural_voices else "standard"
+        
+        try:
+            response = polly_client.synthesize_speech(
+                Text=text,
+                OutputFormat='mp3',
+                VoiceId=voice_id,
+                LanguageCode=polly_lang,
+                Engine=engine
+            )
+        except Exception as neural_error:
+            if "neural" in str(neural_error).lower() and engine == "neural":
+                print(f"Neural engine failed for voice {voice_id}, falling back to standard engine")
+                response = polly_client.synthesize_speech(
+                    Text=text,
+                    OutputFormat='mp3',
+                    VoiceId=voice_id,
+                    LanguageCode=polly_lang,
+                    Engine="standard"
+                )
+            else:
+                raise neural_error
+        
+        # Convert MP3 to WAV using pydub
+        audio_data = response['AudioStream'].read()
+        audio_segment = AudioSegment.from_mp3(io.BytesIO(audio_data))
+        
+        # Export as WAV
+        wav_buffer = io.BytesIO()
+        audio_segment.export(wav_buffer, format="wav")
+        return wav_buffer.getvalue()
+        
+    except Exception as e:
+        print(f"AWS Polly TTS failed: {e}")
+        raise
+```
+
+**Parameters:**
+- `text`: The text to synthesize.
+- `target_language`: The target language for the speech.
+- `voice_id`: The voice to use for the synthesis.
+
+**Returns:**
+- The synthesized audio data in WAV format.
+
+---
+
+### synthesize_speech_sarvam
+
+The `synthesize_speech_sarvam` function synthesizes speech from text using the Sarvam AI service, with support for chunking long text.
+
+```python
+def synthesize_speech_sarvam(text: str, target_language_code: str, sarvam_client, 
+                           speaker: str = "abhilash", pitch: float = 0.0, 
+                           pace: float = 1.0, loudness: float = 1.0, 
+                           sample_rate: int = 16000) -> bytes:
+    """Synthesize speech using Sarvam AI with chunking"""
+    chunks = chunk_text(text, TTS_MAX_CHARS)
+    print(f"TTS chunks: {len(chunks)}")
+
+    if len(chunks) == 1:
+        audio = sarvam_client.text_to_speech.convert(
+            text=chunks[0],
+            model="bulbul:v2",
+            speaker=speaker.lower(),
+            pitch=pitch,
+            target_language_code=target_language_code,
+            pace=pace,
+            loudness=loudness,
+            speech_sample_rate=sample_rate,
+            enable_preprocessing=False
+        )
+        return base64.b64decode("".join(audio.audios))
+    
+    # Handle multiple chunks with merging
+    audio_segments = []
+
+    for i, chunk in enumerate(chunks):
+        try:
+            audio = sarvam_client.text_to_speech.convert(
+                text=chunk,
+                model="bulbul:v2",
+                speaker=speaker.lower(),
+                pitch=pitch,
+                target_language_code=target_language_code,
+                pace=pace,
+                loudness=loudness,
+                speech_sample_rate=sample_rate,
+                enable_preprocessing=False
+            )
+
+            audio_data = base64.b64decode("".join(audio.audios))
+
+            try:
+                segment = AudioSegment.from_wav(io.BytesIO(audio_data))
+            except Exception:
+                try:
+                    segment = AudioSegment.from_mp3(io.BytesIO(audio_data))
+                except Exception:
+                    segment = AudioSegment.from_raw(
+                        io.BytesIO(audio_data),
+                        sample_width=2,
+                        frame_rate=sample_rate,
+                        channels=1
+                    )
+
+            audio_segments.append(segment)
+            print(f"TTS Chunk {i+1} processed — {len(segment)} ms")
+
+        except Exception as e:
+            print(f"TTS Chunk {i+1} failed: {e}")
+            audio_segments.append(AudioSegment.silent(duration=1000))
+
+    if not audio_segments:
+        raise Exception("Failed to generate audio")
+
+    # Merge all audio segments
+    final_audio = audio_segments[0]
+    for seg in audio_segments[1:]:
+        final_audio += AudioSegment.silent(duration=200)  # 200ms gap between chunks
+        final_audio += seg
+
+    # Export as WAV
+    out_buffer = io.BytesIO()
+    final_audio.export(out_buffer, format="wav")
+    return out_buffer.getvalue()
+```
+
+**Parameters:**
+- `text`: The text to synthesize.
+- `target_language_code`: The target language code.
+- `sarvam_client`: An instance of the Sarvam AI client.
+- `speaker`: The speaker to use for the synthesis.
+- `pitch`: The pitch of the synthesized speech.
+- `pace`: The pace of the synthesized speech.
+- `loudness`: The loudness of the synthesized speech.
+- `sample_rate`: The sample rate of the synthesized speech.
+
+**Returns:**
+- The synthesized audio data in WAV format.

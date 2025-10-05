@@ -1,0 +1,526 @@
+---
+title: YouTube Integration Quick Start
+description: Quick start guide for implementing YouTube features in your application
+---
+
+## Quick Start Guide
+
+This guide will help you quickly integrate YouTube functionality into your application using the Korai YouTube utilities.
+
+## Prerequisites
+
+1. **YouTube Data API v3 Key**
+   - Visit [Google Cloud Console](https://console.cloud.google.com/)
+   - Create a new project or select existing
+   - Enable YouTube Data API v3
+   - Create credentials (API Key)
+   - Restrict key to YouTube Data API v3
+
+2. **Environment Setup**
+   ```bash
+   # Add to .env.local
+   YOUTUBE_API_KEY=AIzaSy...your_api_key
+   ```
+
+3. **Optional: Upstash Redis** (for rate limiting)
+   ```bash
+   UPSTASH_REDIS_REST_URL=https://...
+   UPSTASH_REDIS_REST_TOKEN=...
+   ```
+
+## Installation
+
+The YouTube utilities are already included in the project. No additional packages needed for basic functionality.
+
+For transcript features, ensure you have:
+
+```bash
+npm install youtubei.js
+# or
+bun add youtubei.js
+```
+
+## Basic Usage Examples
+
+### 1. Fetch Video Details
+
+```typescript
+import { extractVideoId, fetchVideoData } from '@/lib/ythelper';
+
+async function example() {
+  const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  
+  // Extract video ID
+  const videoId = extractVideoId(url);
+  if (!videoId) {
+    throw new Error('Invalid URL');
+  }
+  
+  // Fetch video data
+  const video = await fetchVideoData(videoId);
+  
+  console.log(video.title);
+  console.log(video.viewsFormatted);
+  console.log(video.durationFormatted);
+}
+```
+
+### 2. Fetch Playlist Information
+
+```typescript
+import { 
+  extractPlaylistId, 
+  fetchPlaylistDetails, 
+  fetchPlaylistVideoIds,
+  fetchVideoDetails 
+} from '@/lib/ythelper';
+
+async function example() {
+  const url = 'https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf';
+  
+  // Extract playlist ID
+  const playlistId = extractPlaylistId(url);
+  
+  // Fetch playlist details
+  const playlist = await fetchPlaylistDetails(playlistId);
+  
+  // Fetch all video IDs
+  const videoIds = await fetchPlaylistVideoIds(playlistId);
+  
+  // Fetch video details
+  const { videos, totalDuration } = await fetchVideoDetails(videoIds);
+  
+  console.log(`${playlist.title}: ${videos.length} videos, ${totalDuration}s total`);
+}
+```
+
+### 3. Fetch Channel Information
+
+```typescript
+import { 
+  extractChannelId, 
+  fetchChannelData, 
+  fetchRecentVideos 
+} from '@/lib/ythelper';
+
+async function example() {
+  const channelId = 'UCXuqSBlHAE6Xw-yeJA0Tunw';
+  
+  // Fetch channel data
+  const channel = await fetchChannelData(channelId);
+  
+  // Fetch recent videos
+  const recentVideos = await fetchRecentVideos(channelId, 5);
+  
+  console.log(`${channel.name}: ${channel.subscribers} subscribers`);
+  console.log(`Recent videos:`, recentVideos);
+}
+```
+
+### 4. Extract Transcript
+
+```typescript
+import { Innertube } from 'youtubei.js/web';
+import { extractVideoId, fetchTranscript } from '@/lib/ythelper';
+
+async function example() {
+  const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  const videoId = extractVideoId(url);
+  
+  // Initialize Innertube
+  const youtube = await Innertube.create({
+    lang: 'en',
+    location: 'US',
+    retrieve_player: false
+  });
+  
+  // Fetch transcript
+  const transcript = await fetchTranscript(youtube, videoId);
+  
+  console.log('Full transcript:', transcript.fullTranscript);
+  console.log('Segments:', transcript.segments.length);
+}
+```
+
+## API Endpoint Usage
+
+### Using the Video Detail Endpoint
+
+```typescript
+// Client-side
+async function getVideo(url: string) {
+  const response = await fetch('/api/videoDetail', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoUrl: url })
+  });
+  
+  const { video } = await response.json();
+  return video;
+}
+```
+
+### Using the Playlist Endpoint
+
+```typescript
+// Client-side
+async function getPlaylist(url: string) {
+  const params = new URLSearchParams({ id: url });
+  const response = await fetch(`/api/playlist?${params}`);
+  const data = await response.json();
+  return data;
+}
+```
+
+### Using the Transcribe Endpoint
+
+```typescript
+// Client-side
+async function getTranscript(url: string) {
+  const response = await fetch('/api/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoUrl: url })
+  });
+  
+  const { transcript, rateLimit } = await response.json();
+  console.log(`Remaining: ${rateLimit.remaining}/${rateLimit.limit}`);
+  return transcript;
+}
+```
+
+## React Component Examples
+
+### Simple Video Display
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { VideoData } from '@/lib/youtube';
+
+export function VideoViewer() {
+  const [url, setUrl] = useState('');
+  const [video, setVideo] = useState<VideoData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchVideo = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/videoDetail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl: url })
+      });
+      const { video } = await response.json();
+      setVideo(video);
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <input
+        type="text"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="YouTube URL"
+      />
+      <button onClick={fetchVideo} disabled={loading}>
+        {loading ? 'Loading...' : 'Fetch Video'}
+      </button>
+      
+      {video && (
+        <div>
+          <h2>{video.title}</h2>
+          <p>{video.channel}</p>
+          <p>{video.viewsFormatted}</p>
+          <p>{video.durationFormatted}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Playlist Browser
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { PlaylistDetails, VideoItem } from '@/lib/youtube';
+
+export function PlaylistBrowser() {
+  const [url, setUrl] = useState('');
+  const [data, setData] = useState<{
+    playlist: PlaylistDetails;
+    videos: VideoItem[];
+  } | null>(null);
+
+  const fetchPlaylist = async () => {
+    const params = new URLSearchParams({ id: url });
+    const response = await fetch(`/api/playlist?${params}`);
+    const result = await response.json();
+    setData({
+      playlist: result.playlistDetails,
+      videos: result.videos
+    });
+  };
+
+  return (
+    <div>
+      <input
+        type="text"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="Playlist URL"
+      />
+      <button onClick={fetchPlaylist}>Load Playlist</button>
+      
+      {data && (
+        <>
+          <h2>{data.playlist.title}</h2>
+          <p>{data.videos.length} videos</p>
+          <ul>
+            {data.videos.map((video) => (
+              <li key={video.id}>{video.title}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+## Common Patterns
+
+### URL Validation Before API Call
+
+```typescript
+import { validateYoutubeVideoUrl } from '@/lib/youtube-validator';
+
+async function safeVideoFetch(url: string) {
+  // Validate first
+  const validation = validateYoutubeVideoUrl(url);
+  
+  if (!validation.isValid) {
+    throw new Error(validation.error);
+  }
+  
+  // Now safe to call API
+  const response = await fetch('/api/videoDetail', {
+    method: 'POST',
+    body: JSON.stringify({ videoUrl: url })
+  });
+  
+  return response.json();
+}
+```
+
+### Error Handling Pattern
+
+```typescript
+async function robustVideoFetch(url: string) {
+  try {
+    const response = await fetch('/api/videoDetail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoUrl: url })
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Unknown error');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error('Network error - check your connection');
+    }
+    throw error;
+  }
+}
+```
+
+### Loading States Pattern
+
+```typescript
+import { useState } from 'react';
+
+function useYouTubeVideo() {
+  const [video, setVideo] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const fetchVideo = async (url: string) => {
+    setLoading(true);
+    setError('');
+    setVideo(null);
+    
+    try {
+      const response = await fetch('/api/videoDetail', {
+        method: 'POST',
+        body: JSON.stringify({ videoUrl: url })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch video');
+      }
+      
+      const { video } = await response.json();
+      setVideo(video);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { video, loading, error, fetchVideo };
+}
+```
+
+## Server Actions Example
+
+```typescript
+'use server';
+
+import { 
+  extractVideoId, 
+  fetchVideoData 
+} from '@/lib/ythelper';
+
+export async function getVideoAction(url: string) {
+  const videoId = extractVideoId(url);
+  
+  if (!videoId) {
+    return { 
+      success: false, 
+      error: 'Invalid YouTube URL' 
+    };
+  }
+  
+  try {
+    const video = await fetchVideoData(videoId);
+    return { 
+      success: true, 
+      data: video 
+    };
+  } catch (error) {
+    return { 
+      success: false, 
+      error: error.message 
+    };
+  }
+}
+
+// Usage in client component
+'use client';
+
+import { getVideoAction } from './actions';
+
+export function VideoForm() {
+  const [url, setUrl] = useState('');
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const result = await getVideoAction(url);
+    
+    if (result.success) {
+      console.log(result.data);
+    } else {
+      console.error(result.error);
+    }
+  };
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      <input value={url} onChange={(e) => setUrl(e.target.value)} />
+      <button type="submit">Fetch</button>
+    </form>
+  );
+}
+```
+
+## Testing
+
+### Unit Test Example
+
+```typescript
+import { extractVideoId, parseDuration, formatNumber } from '@/lib/ythelper';
+
+describe('YouTube Helpers', () => {
+  test('extractVideoId extracts from standard URL', () => {
+    const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    expect(extractVideoId(url)).toBe('dQw4w9WgXcQ');
+  });
+  
+  test('parseDuration converts ISO 8601 to seconds', () => {
+    expect(parseDuration('PT1H23M45S')).toBe(5025);
+    expect(parseDuration('PT15M')).toBe(900);
+    expect(parseDuration('PT30S')).toBe(30);
+  });
+  
+  test('formatNumber uses compact notation', () => {
+    expect(formatNumber(1234)).toBe('1.2K');
+    expect(formatNumber(1234567)).toBe('1.2M');
+    expect(formatNumber(1234567890)).toBe('1.2B');
+  });
+});
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue: "Invalid YouTube URL"**
+```typescript
+// Solution: Use URL validator first
+import { validateYoutubeVideoUrl } from '@/lib/youtube-validator';
+
+const validation = validateYoutubeVideoUrl(url);
+if (!validation.isValid) {
+  console.error(validation.error);
+}
+```
+
+**Issue: "Rate limit exceeded"**
+```typescript
+// Solution: Check rate limit headers and implement backoff
+if (response.status === 429) {
+  const reset = response.headers.get('X-RateLimit-Reset');
+  const resetDate = new Date(parseInt(reset) * 1000);
+  console.log(`Try again at ${resetDate}`);
+}
+```
+
+**Issue: "No transcript available"**
+```typescript
+// Solution: Check if video has captions
+try {
+  const transcript = await fetchTranscript(youtube, videoId);
+} catch (error) {
+  if (error.message.includes('No transcript available')) {
+    console.log('This video does not have captions enabled');
+  }
+}
+```
+
+## Next Steps
+
+- [Detailed Helper Functions Documentation](/docs/youtube/youtube-helpers)
+- [API Routes Documentation](/docs/youtube/youtube-api-routes)
+- [Type Definitions](/docs/youtube/youtube-types)
+- [URL Validation Guide](/docs/youtube/youtube-validation)
+
+## Resources
+
+- [YouTube Data API Documentation](https://developers.google.com/youtube/v3)
+- [API Quota Calculator](https://developers.google.com/youtube/v3/determine_quota_cost)
+- [YouTube URL Formats](https://gist.github.com/rodrigoborgesdeoliveira/987683cfbfcc8d800192da1e73adc486)

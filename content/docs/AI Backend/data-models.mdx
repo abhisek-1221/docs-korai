@@ -1,0 +1,191 @@
+---
+title: "Data Models"
+---
+
+This document provides a detailed explanation of the Pydantic data models used in the AI backend. These models define the structure of requests for processing videos, identifying clips, and adding subtitles.
+
+### SubtitleCustomization
+
+The `SubtitleCustomization` model allows for detailed customization of subtitles.
+
+```python
+class SubtitleCustomization(BaseModel):
+    enabled: bool = True
+    position: Optional[str] = "bottom"  # "bottom", "middle", "top"
+    font_size: Optional[int] = None  # Will auto-calculate based on aspect ratio if None
+    font_family: Optional[str] = None  # Will auto-select based on language if None
+    font_color: Optional[str] = "#FFFFFF"  # White by default
+    outline_color: Optional[str] = "#000000"  # Black outline by default
+    outline_width: Optional[float] = 2.0
+    background_color: Optional[str] = None  # Transparent by default, use hex color for background
+    background_opacity: Optional[float] = 0.7  # 0.0 to 1.0
+    shadow_enabled: bool = True
+    shadow_color: Optional[str] = "#000000"
+    shadow_offset: Optional[float] = 2.0
+    max_words_per_line: Optional[int] = 5
+    margin_horizontal: Optional[int] = 50
+    margin_vertical: Optional[int] = None  # Will auto-calculate if None
+    fade_in_duration: Optional[float] = 0.2
+    fade_out_duration: Optional[float] = 0.2
+    karaoke_enabled: bool = False
+    karaoke_highlight_color: Optional[str] = "#FFFF00"  # Yellow
+    karaoke_popup_scale: Optional[float] = 1.2
+```
+
+**Fields:**
+- `enabled`: A boolean to enable or disable subtitles.
+- `position`: The position of the subtitles on the screen (`bottom`, `middle`, `top`).
+- `font_size`: The font size of the subtitles.
+- `font_family`: The font family to use for the subtitles.
+- `font_color`: The color of the subtitle text.
+- `outline_color`: The color of the subtitle outline.
+- `outline_width`: The width of the subtitle outline.
+- `background_color`: The background color for the subtitles.
+- `background_opacity`: The opacity of the background.
+- `shadow_enabled`: A boolean to enable or disable a shadow effect.
+- `shadow_color`: The color of the shadow.
+- `shadow_offset`: The offset of the shadow.
+- `max_words_per_line`: The maximum number of words to display per line.
+- `margin_horizontal`: The horizontal margin for the subtitles.
+- `margin_vertical`: The vertical margin for the subtitles.
+- `fade_in_duration`: The duration of the fade-in effect.
+- `fade_out_duration`: The duration of the fade-out effect.
+- `karaoke_enabled`: A boolean to enable a karaoke-style highlighting effect.
+- `karaoke_highlight_color`: The color for the karaoke highlight.
+- `karaoke_popup_scale`: The scaling factor for the karaoke pop-up effect.
+
+---
+
+### ProcessVideoRequest
+
+The `ProcessVideoRequest` model is used for requests to process a video and generate clips.
+
+```python
+class ProcessVideoRequest(BaseModel):
+    s3_key: Optional[str] = None  # S3 key for uploaded video
+    youtube_url: Optional[str] = None  # YouTube URL as alternative to S3
+    s3_key_yt: Optional[str] = None  # Custom S3 key for YouTube video and its clips
+    number_of_clips: int = 1
+    prompt: Optional[str] = None
+    target_language: Optional[str] = None
+    aspect_ratio: Optional[str] = "9:16"
+    subtitles: bool = True
+    watermark_s3_key: Optional[str] = None
+    subtitle_position: Optional[str] = "bottom"  # Deprecated, use subtitle_customization instead
+    subtitle_customization: Optional[SubtitleCustomization] = None
+    background_music_s3_key: Optional[str] = None  # S3 key for background music file
+    background_music_volume: Optional[float] = 0.1  # Volume level (0.0 to 1.0), default is subtle
+    s3_folder: Optional[str] = "youtube_videos"  # S3 folder to store downloaded YouTube videos (deprecated, use s3_key_yt)
+```
+
+**Fields:**
+- `s3_key`: The S3 key for the uploaded video.
+- `youtube_url`: The URL of a YouTube video to process.
+- `s3_key_yt`: A custom S3 key for storing the YouTube video and its clips.
+- `number_of_clips`: The number of clips to generate.
+- `prompt`: An optional prompt to guide clip identification.
+- `target_language`: The target language for translation and TTS.
+- `aspect_ratio`: The desired aspect ratio for the clips (e.g., "9:16").
+- `subtitles`: A boolean to enable or disable subtitles.
+- `watermark_s3_key`: The S3 key for a watermark image to add to the video.
+- `subtitle_position`: (Deprecated) The position of the subtitles.
+- `subtitle_customization`: A `SubtitleCustomization` object for styling subtitles.
+- `background_music_s3_key`: The S3 key for a background music file.
+- `background_music_volume`: The volume of the background music.
+- `s3_folder`: (Deprecated) The S3 folder for storing downloaded YouTube videos.
+
+---
+
+### IdentifyClipsRequest
+
+The `IdentifyClipsRequest` model is used to identify potential clips from a video without processing them.
+
+```python
+class IdentifyClipsRequest(BaseModel):
+    s3_key: Optional[str] = None  # S3 key for uploaded video
+    youtube_url: Optional[str] = None  # YouTube URL as alternative to S3
+    s3_key_yt: Optional[str] = None  # Custom S3 key for YouTube video
+    prompt: Optional[str] = None
+    s3_folder: Optional[str] = "youtube_videos"
+```
+
+**Fields:**
+- `s3_key`: The S3 key for the uploaded video.
+- `youtube_url`: The URL of a YouTube video.
+- `s3_key_yt`: A custom S3 key for the YouTube video.
+- `prompt`: An optional prompt to guide clip identification.
+- `s3_folder`: The S3 folder for storing downloaded YouTube videos.
+
+---
+
+### ClipTime
+
+The `ClipTime` model defines the start and end times for a video clip.
+
+```python
+class ClipTime(BaseModel):
+    start: float
+    end: float
+```
+
+**Fields:**
+- `start`: The start time of the clip in seconds.
+- `end`: The end time of the clip in seconds.
+
+---
+
+### ProcessClipsRequest
+
+The `ProcessClipsRequest` model is used to process a list of predefined clips.
+
+```python
+class ProcessClipsRequest(BaseModel):
+    s3_key: Optional[str] = None
+    youtube_url: Optional[str] = None
+    s3_key_yt: Optional[str] = None
+    clips: list[ClipTime]
+    target_language: Optional[str] = None
+    aspect_ratio: Optional[str] = "9:16"
+    subtitles: bool = True
+    watermark_s3_key: Optional[str] = None
+    subtitle_customization: Optional[SubtitleCustomization] = None
+    background_music_s3_key: Optional[str] = None
+    background_music_volume: Optional[float] = 0.1
+    s3_folder: Optional[str] = "youtube_videos"
+```
+
+**Fields:**
+- `s3_key`: The S3 key for the video.
+- `youtube_url`: The URL of a YouTube video.
+- `s3_key_yt`: A custom S3 key for the YouTube video.
+- `clips`: A list of `ClipTime` objects defining the clips to process.
+- `target_language`: The target language for translation and TTS.
+- `aspect_ratio`: The desired aspect ratio for the clips.
+- `subtitles`: A boolean to enable or disable subtitles.
+- `watermark_s3_key`: The S3 key for a watermark image.
+- `subtitle_customization`: A `SubtitleCustomization` object for styling subtitles.
+- `background_music_s3_key`: The S3 key for a background music file.
+- `background_music_volume`: The volume of the background music.
+- `s3_folder`: The S3 folder for storing downloaded YouTube videos.
+
+---
+
+### AddSubtitlesRequest
+
+The `AddSubtitlesRequest` model is used to add subtitles to a video.
+
+```python
+class AddSubtitlesRequest(BaseModel):
+    s3_key: str  # S3 key of the source video
+    output_s3_key: Optional[str] = None  # Optional custom output S3 key. If not provided, will append "_subtitled" to the original filename
+    target_language: Optional[str] = None  # Optional language for translation and TTS
+    aspect_ratio: Optional[str] = "9:16"  # Video aspect ratio for subtitle positioning
+    subtitle_customization: Optional[SubtitleCustomization] = None  # Subtitle styling options
+```
+
+**Fields:**
+- `s3_key`: The S3 key of the source video.
+- `output_s3_key`: An optional custom S3 key for the output video.
+- `target_language`: The target language for translation and TTS.
+- `aspect_ratio`: The aspect ratio of the video for subtitle positioning.
+- `subtitle_customization`: A `SubtitleCustomization` object for styling subtitles.

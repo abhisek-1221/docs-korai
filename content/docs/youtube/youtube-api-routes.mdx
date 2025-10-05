@@ -1,0 +1,913 @@
+---
+title: YouTube API Routes
+description: Complete documentation of YouTube-related API endpoints
+---
+
+## Overview
+
+The Korai application exposes three main API endpoints for YouTube functionality:
+
+- **`/api/videoDetail`** - Fetch single video details
+- **`/api/playlist`** - Fetch playlist information and videos
+- **`/api/transcribe`** - Extract video transcripts
+
+All routes are located in `/src/app/api/` and use Next.js 14+ App Router conventions.
+
+---
+
+## /api/videoDetail
+
+Fetches comprehensive details for a single YouTube video including metadata, statistics, and thumbnails.
+
+### Endpoint
+```
+POST /api/videoDetail
+```
+
+### Request Body
+
+```typescript
+{
+  videoUrl: string  // YouTube video URL
+}
+```
+
+### Response
+
+**Success (200):**
+```typescript
+{
+  video: {
+    id: string
+    title: string
+    description: string
+    thumbnails: {
+      default: { url: string; width: number; height: number }
+      medium: { url: string; width: number; height: number }
+      high: { url: string; width: number; height: number }
+    }
+    channelTitle: string
+    publishedAt: string
+    duration: number          // in seconds
+    viewCount: number
+    likeCount: number
+  }
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | `Missing video URL` | Request body missing `videoUrl` |
+| 400 | `Invalid YouTube URL` | URL is not a valid YouTube video URL |
+| 404 | `Video not found` | Video ID doesn't exist or is unavailable |
+| 500 | `Internal Server Error` | Unexpected server error |
+
+### Code Implementation
+
+```typescript
+// /src/app/api/videoDetail/route.ts
+import { VideoItem } from '@/lib/youtube';
+import {
+  extractVideoId,
+  parseDuration,
+  YOUTUBE_API_BASE_URL,
+  YOUTUBE_API_KEY
+} from '@/lib/ythelper';
+import { NextResponse } from 'next/server';
+
+export async function POST(req: Request) {
+  try {
+    const { videoUrl } = await req.json();
+
+    if (!videoUrl) {
+      return NextResponse.json({ error: 'Missing video URL' }, { status: 400 });
+    }
+
+    const videoId = extractVideoId(videoUrl);
+    if (!videoId) {
+      return NextResponse.json(
+        { error: 'Invalid YouTube URL' },
+        { status: 400 }
+      );
+    }
+
+    // Fetch video details from YouTube API
+    const response = await fetch(
+      `${YOUTUBE_API_BASE_URL}/videos?part=contentDetails,snippet,statistics&id=${videoId}&key=${YOUTUBE_API_KEY}`
+    );
+
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: 'Failed to fetch video details' },
+        { status: response.status }
+      );
+    }
+
+    const data = await response.json();
+
+    if (!data.items || data.items.length === 0) {
+      return NextResponse.json({ error: 'Video not found' }, { status: 404 });
+    }
+
+    const item = data.items[0];
+
+    const videoDetails: VideoItem = {
+      id: item.id,
+      title: item.snippet.title,
+      description: item.snippet.description,
+      thumbnails: item.snippet.thumbnails,
+      channelTitle: item.snippet.channelTitle,
+      publishedAt: item.snippet.publishedAt,
+      duration: parseDuration(item.contentDetails.duration),
+      viewCount: parseInt(item.statistics.viewCount, 10),
+      likeCount: parseInt(item.statistics.likeCount, 10)
+    };
+
+    return NextResponse.json({ video: videoDetails });
+  } catch (error) {
+    console.error('Error fetching video details:', error);
+    return NextResponse.json(
+      { error: 'Internal Server Error' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### Usage Example
+
+**Client-side:**
+
+```typescript
+async function getVideoDetails(videoUrl: string) {
+  try {
+    const response = await fetch('/api/videoDetail', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ videoUrl }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error);
+    }
+
+    const data = await response.json();
+    return data.video;
+  } catch (error) {
+    console.error('Failed to fetch video details:', error);
+    throw error;
+  }
+}
+
+// Usage
+const videoUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const video = await getVideoDetails(videoUrl);
+console.log(`Title: ${video.title}`);
+console.log(`Views: ${video.viewCount}`);
+console.log(`Duration: ${video.duration} seconds`);
+```
+
+**cURL Example:**
+
+```bash
+curl -X POST http://localhost:3000/api/videoDetail \
+  -H "Content-Type: application/json" \
+  -d '{"videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+```
+
+### Key Features
+
+- ✅ Extracts video ID from various URL formats
+- ✅ Fetches comprehensive video metadata
+- ✅ Parses ISO 8601 duration to seconds
+- ✅ Returns structured video data
+- ✅ Handles errors gracefully
+
+### YouTube API Usage
+
+**Endpoint:** `GET /youtube/v3/videos`
+
+**Parts Requested:**
+- `contentDetails` - Duration information
+- `snippet` - Title, description, thumbnails
+- `statistics` - View count, like count
+
+**Quota Cost:** 1 unit per request
+
+---
+
+## /api/playlist
+
+Fetches complete playlist information including all videos with metadata and total duration.
+
+### Endpoint
+```
+GET /api/playlist?id={playlistUrl}
+```
+
+### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | Yes | YouTube playlist URL |
+
+### Response
+
+**Success (200):**
+```typescript
+{
+  playlistDetails: {
+    id: string
+    title: string
+    description: string
+    thumbnails: {
+      default: { url: string; width: number; height: number }
+      medium: { url: string; width: number; height: number }
+      high: { url: string; width: number; height: number }
+      standard?: { url: string; width: number; height: number }
+      maxres?: { url: string; width: number; height: number }
+    }
+  },
+  videos: Array<{
+    id: string
+    title: string
+    description: string
+    thumbnails: { ... }
+    channelTitle: string
+    publishedAt: string
+    duration: number
+    viewCount: number
+    likeCount: number
+  }>,
+  totalDuration: number,  // Total duration of all videos in seconds
+  totalVideos: number     // Number of videos in playlist
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | `Missing playlist URL` | Query parameter `id` is missing |
+| 400 | `Missing playlist ID` | URL doesn't contain valid playlist ID |
+| 400 | `Invalid playlist ID` | Playlist doesn't exist |
+| 500 | `Failed to fetch playlist data` | Unexpected server error |
+
+### Code Implementation
+
+```typescript
+// /src/app/api/playlist/route.ts
+import { NextResponse } from 'next/server';
+import {
+  extractPlaylistId,
+  fetchPlaylistDetails,
+  fetchPlaylistVideoIds,
+  fetchVideoDetails
+} from '@/lib/ythelper';
+
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const playlistUrl = searchParams.get('id');
+  
+  if (!playlistUrl) {
+    return NextResponse.json(
+      { error: 'Missing playlist URL' },
+      { status: 400 }
+    );
+  }
+
+  const playlistId = extractPlaylistId(playlistUrl);
+
+  if (!playlistId) {
+    return NextResponse.json({ error: 'Missing playlist ID' }, { status: 400 });
+  }
+
+  try {
+    const playlistDetails = await fetchPlaylistDetails(playlistId);
+    const videoIds = await fetchPlaylistVideoIds(playlistId);
+    const { videos, totalDuration } = await fetchVideoDetails(videoIds);
+
+    return NextResponse.json({
+      playlistDetails,
+      videos,
+      totalDuration,
+      totalVideos: videos.length
+    });
+  } catch (error) {
+    console.error('Error fetching playlist data:', error);
+    if (error instanceof Error && error.message === 'Invalid playlist ID') {
+      return NextResponse.json(
+        { error: 'Invalid playlist ID' },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json(
+      { error: 'Failed to fetch playlist data' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### Usage Example
+
+**Client-side:**
+
+```typescript
+async function getPlaylistData(playlistUrl: string) {
+  try {
+    const params = new URLSearchParams({ id: playlistUrl });
+    const response = await fetch(`/api/playlist?${params}`);
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to fetch playlist:', error);
+    throw error;
+  }
+}
+
+// Usage
+const playlistUrl = 'https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf';
+const playlist = await getPlaylistData(playlistUrl);
+
+console.log(`Playlist: ${playlist.playlistDetails.title}`);
+console.log(`Total Videos: ${playlist.totalVideos}`);
+console.log(`Total Duration: ${playlist.totalDuration / 3600} hours`);
+
+// Iterate through videos
+playlist.videos.forEach((video, index) => {
+  console.log(`${index + 1}. ${video.title} (${video.duration}s)`);
+});
+```
+
+**React Component Example:**
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+
+export function PlaylistAnalyzer() {
+  const [url, setUrl] = useState('');
+  const [playlist, setPlaylist] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const analyzePlaylist = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const params = new URLSearchParams({ id: url });
+      const response = await fetch(`/api/playlist?${params}`);
+      
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error);
+      }
+      
+      const data = await response.json();
+      setPlaylist(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <input
+        type="text"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="Enter YouTube playlist URL"
+      />
+      <button onClick={analyzePlaylist} disabled={loading}>
+        {loading ? 'Analyzing...' : 'Analyze Playlist'}
+      </button>
+      
+      {error && <p className="error">{error}</p>}
+      
+      {playlist && (
+        <div>
+          <h2>{playlist.playlistDetails.title}</h2>
+          <p>Videos: {playlist.totalVideos}</p>
+          <p>Total Duration: {Math.round(playlist.totalDuration / 3600)}h</p>
+          
+          <ul>
+            {playlist.videos.map((video) => (
+              <li key={video.id}>
+                <strong>{video.title}</strong>
+                <span> - {video.channelTitle}</span>
+                <span> ({Math.round(video.duration / 60)} min)</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+**cURL Example:**
+
+```bash
+curl -X GET "http://localhost:3000/api/playlist?id=https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
+```
+
+### Key Features
+
+- ✅ Fetches complete playlist metadata
+- ✅ Retrieves all videos (handles pagination automatically)
+- ✅ Batch processes video details efficiently
+- ✅ Calculates total playlist duration
+- ✅ Returns video count
+- ✅ Optimized for large playlists (100+ videos)
+
+### YouTube API Usage
+
+**Endpoints Used:**
+1. `GET /youtube/v3/playlists` - Playlist metadata
+2. `GET /youtube/v3/playlistItems` - Video IDs (paginated)
+3. `GET /youtube/v3/videos` - Video details (batched)
+
+**Quota Cost:**
+- Playlist details: 1 unit
+- Playlist items: 1 unit per 50 videos
+- Video details: 1 unit per 50 videos
+
+**Example:** 100-video playlist = 1 + 2 + 2 = **5 units**
+
+### Performance Optimization
+
+The playlist endpoint uses several optimizations:
+
+1. **Batch Processing**: Fetches 50 videos at a time
+2. **Parallel Requests**: Uses `Promise.all` for chunks
+3. **Single Response**: Returns all data in one API call
+4. **Efficient Parsing**: Duration calculation happens during fetch
+
+---
+
+## /api/transcribe
+
+Extracts video transcripts with timestamps using the Innertube library. Includes rate limiting.
+
+### Endpoint
+```
+POST /api/transcribe
+```
+
+### Request Body
+
+```typescript
+{
+  videoUrl: string  // YouTube video URL
+}
+```
+
+### Response
+
+**Success (200):**
+```typescript
+{
+  transcript: {
+    segments: Array<{
+      text: string
+      startTime: string  // Format: "MM:SS"
+      endTime: string    // Format: "MM:SS"
+    }>,
+    fullTranscript: string  // Combined text of all segments
+  },
+  rateLimit: {
+    limit: number      // Total requests allowed
+    remaining: number  // Remaining requests
+    reset: number      // Reset timestamp
+  }
+}
+```
+
+**Error Responses:**
+
+| Status | Error | Description |
+|--------|-------|-------------|
+| 400 | `No videoUrl provided` | Missing `videoUrl` in request body |
+| 400 | `Invalid YouTube URL` | URL is not a valid YouTube video URL |
+| 429 | `Rate limit exceeded` | Too many requests, includes rate limit headers |
+| 500 | `Failed to fetch transcript` | Transcript unavailable or extraction failed |
+| 503 | `Service temporarily unavailable` | Rate limiter or YouTube service issues |
+
+**Rate Limit Headers (on 429):**
+```
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1633024800
+```
+
+### Code Implementation
+
+```typescript
+// /src/app/api/transcribe/route.ts
+import { NextResponse } from 'next/server';
+import { Innertube } from 'youtubei.js/web';
+import { extractVideoId, fetchTranscript } from '@/lib/ythelper';
+import { transcribeRateLimiter } from '@/lib/ratelimit';
+
+export async function POST(request: Request) {
+  try {
+    const ip = request.headers.get('x-forwarded-for') || 'anonymous';
+
+    let rateLimitResult;
+    try {
+      rateLimitResult = await transcribeRateLimiter.limit(ip);
+    } catch (error) {
+      console.error('Rate limiter error:', error);
+      return NextResponse.json(
+        {
+          error:
+            'Service temporarily unavailable. Please try again in a moment.'
+        },
+        { status: 503 }
+      );
+    }
+
+    const { success, limit, remaining, reset } = rateLimitResult;
+
+    if (!success) {
+      return NextResponse.json(
+        {
+          error: 'Rate limit exceeded. Please try again later.',
+          limit,
+          remaining: 0,
+          reset
+        },
+        {
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': limit.toString(),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': reset.toString()
+          }
+        }
+      );
+    }
+
+    const { videoUrl } = await request.json();
+    if (!videoUrl) {
+      return NextResponse.json(
+        { error: 'No videoUrl provided' },
+        { status: 400 }
+      );
+    }
+
+    const videoId = extractVideoId(videoUrl);
+    if (!videoId) {
+      return NextResponse.json(
+        { error: 'Invalid YouTube URL' },
+        { status: 400 }
+      );
+    }
+
+    // Try creating Innertube with retry logic for parsing issues
+    let youtube;
+    let transcript;
+    let lastError;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        youtube = await Innertube.create({
+          lang: 'en',
+          location: 'IN',
+          retrieve_player: false
+        });
+
+        transcript = await fetchTranscript(youtube, videoId);
+        break; // Success, exit retry loop
+      } catch (error: any) {
+        lastError = error;
+        console.log(`Attempt ${attempt} failed:`, error.message);
+
+        // If it's a CompositeVideoPrimaryInfo error and we have another attempt, wait and retry
+        if (
+          attempt < 2 &&
+          error.message?.includes('CompositeVideoPrimaryInfo')
+        ) {
+          console.log('Retrying due to YouTube parser issue...');
+          await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1 second
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    if (!transcript) {
+      throw lastError || new Error('Failed to fetch transcript after retries');
+    }
+
+    if (!transcript || !transcript.fullTranscript) {
+      throw new Error('Failed to extract transcript from video');
+    }
+
+    return NextResponse.json({
+      transcript,
+      rateLimit: {
+        limit,
+        remaining,
+        reset
+      }
+    });
+  } catch (error: any) {
+    console.error('Error in transcript route:', error);
+
+    if (error.code === 'ECONNRESET' || error.code === 'ECONNREFUSED') {
+      return NextResponse.json(
+        {
+          error:
+            'Service temporarily unavailable. Please try again in a moment.'
+        },
+        { status: 503 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: error.message || 'Failed to fetch transcript' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### Usage Example
+
+**Client-side:**
+
+```typescript
+async function getTranscript(videoUrl: string) {
+  try {
+    const response = await fetch('/api/transcribe', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ videoUrl }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      
+      // Handle rate limiting
+      if (response.status === 429) {
+        const resetDate = new Date(error.reset * 1000);
+        throw new Error(`Rate limit exceeded. Try again at ${resetDate.toLocaleTimeString()}`);
+      }
+      
+      throw new Error(error.error);
+    }
+
+    const data = await response.json();
+    return data.transcript;
+  } catch (error) {
+    console.error('Failed to fetch transcript:', error);
+    throw error;
+  }
+}
+
+// Usage
+const videoUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const transcript = await getTranscript(videoUrl);
+
+console.log('Full transcript:', transcript.fullTranscript);
+console.log('Number of segments:', transcript.segments.length);
+
+// Display segments with timestamps
+transcript.segments.forEach((segment, index) => {
+  console.log(`[${segment.startTime} - ${segment.endTime}]: ${segment.text}`);
+});
+```
+
+**React Component with Rate Limit Handling:**
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+
+export function TranscriptExtractor() {
+  const [url, setUrl] = useState('');
+  const [transcript, setTranscript] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [rateLimit, setRateLimit] = useState(null);
+
+  const extractTranscript = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const response = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoUrl: url }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        if (response.status === 429) {
+          const resetTime = new Date(data.reset * 1000);
+          throw new Error(`Rate limit exceeded. Try again at ${resetTime.toLocaleTimeString()}`);
+        }
+        throw new Error(data.error);
+      }
+      
+      setTranscript(data.transcript);
+      setRateLimit(data.rateLimit);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <input
+        type="text"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="Enter YouTube video URL"
+      />
+      <button onClick={extractTranscript} disabled={loading}>
+        {loading ? 'Extracting...' : 'Extract Transcript'}
+      </button>
+      
+      {rateLimit && (
+        <p className="rate-limit-info">
+          Requests remaining: {rateLimit.remaining}/{rateLimit.limit}
+        </p>
+      )}
+      
+      {error && <p className="error">{error}</p>}
+      
+      {transcript && (
+        <div>
+          <h3>Transcript</h3>
+          <div className="transcript-text">
+            {transcript.fullTranscript}
+          </div>
+          
+          <h4>Segments ({transcript.segments.length})</h4>
+          <div className="segments">
+            {transcript.segments.map((segment, i) => (
+              <div key={i} className="segment">
+                <span className="timestamp">
+                  {segment.startTime} - {segment.endTime}
+                </span>
+                <span className="text">{segment.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+**cURL Example:**
+
+```bash
+curl -X POST http://localhost:3000/api/transcribe \
+  -H "Content-Type: application/json" \
+  -d '{"videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+```
+
+### Key Features
+
+- ✅ Extracts complete video transcripts
+- ✅ Returns segmented transcript with timestamps
+- ✅ Rate limiting protection (IP-based)
+- ✅ Retry logic for transient YouTube API issues
+- ✅ Comprehensive error handling
+- ✅ Returns rate limit information
+
+### Rate Limiting
+
+The transcript endpoint implements rate limiting using Upstash Redis:
+
+```typescript
+// Configure in /src/lib/ratelimit.ts
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+
+export const transcribeRateLimiter = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(10, '1 h'), // 10 requests per hour
+  analytics: true,
+});
+```
+
+**Default Limits:**
+- 10 requests per hour per IP address
+- Sliding window algorithm
+- Analytics enabled for monitoring
+
+### Transcript Limitations
+
+1. **Availability**: Not all videos have transcripts
+2. **Language**: Currently configured for English (`lang: 'en'`)
+3. **Private Videos**: Cannot extract transcripts from private videos
+4. **Live Streams**: May not work on active live streams
+5. **Auto-generated**: Quality depends on YouTube's auto-captioning
+
+### Common Transcript Errors
+
+| Error Message | Cause | Solution |
+|---------------|-------|----------|
+| `No transcript available for this video` | Video has no captions | Choose a video with captions enabled |
+| `Transcripts are disabled for this video` | Channel disabled captions | Try a different video |
+| `This video is private or unavailable` | Video not publicly accessible | Use a public video URL |
+| `Transcript appears to be empty` | Transcript exists but has no content | Report issue or try different video |
+
+---
+
+## Combined Usage Example
+
+Here's an example of using all three endpoints together:
+
+```typescript
+async function analyzeYouTubeVideo(videoUrl: string) {
+  try {
+    // 1. Get basic video details
+    const videoResponse = await fetch('/api/videoDetail', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoUrl }),
+    });
+    const { video } = await videoResponse.json();
+    
+    console.log('Video Details:');
+    console.log(`- Title: ${video.title}`);
+    console.log(`- Channel: ${video.channelTitle}`);
+    console.log(`- Duration: ${video.duration} seconds`);
+    console.log(`- Views: ${video.viewCount.toLocaleString()}`);
+    
+    // 2. Extract transcript
+    const transcriptResponse = await fetch('/api/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoUrl }),
+    });
+    const { transcript, rateLimit } = await transcriptResponse.json();
+    
+    console.log('\nTranscript:');
+    console.log(`- Segments: ${transcript.segments.length}`);
+    console.log(`- Full length: ${transcript.fullTranscript.length} characters`);
+    console.log(`- Rate limit: ${rateLimit.remaining}/${rateLimit.limit} remaining`);
+    
+    // 3. If video is part of a playlist, fetch playlist info
+    const playlistMatch = videoUrl.match(/[?&]list=([^&]+)/);
+    if (playlistMatch) {
+      const playlistId = playlistMatch[1];
+      const playlistUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
+      
+      const playlistResponse = await fetch(
+        `/api/playlist?id=${encodeURIComponent(playlistUrl)}`
+      );
+      const playlist = await playlistResponse.json();
+      
+      console.log('\nPlaylist Info:');
+      console.log(`- Title: ${playlist.playlistDetails.title}`);
+      console.log(`- Total videos: ${playlist.totalVideos}`);
+      console.log(`- Total duration: ${(playlist.totalDuration / 3600).toFixed(1)} hours`);
+    }
+    
+    return { video, transcript };
+  } catch (error) {
+    console.error('Error analyzing video:', error);
+    throw error;
+  }
+}
+
+// Usage
+analyzeYouTubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLxyz')
+  .then(result => console.log('Analysis complete!'))
+  .catch(error => console.error('Analysis failed:', error));
+```
+
+---
+

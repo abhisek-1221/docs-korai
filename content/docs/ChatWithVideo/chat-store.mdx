@@ -1,0 +1,355 @@
+---
+title: Chat with Video - Store
+description: Zustand store managing video chat state
+---
+
+## Overview
+
+The Video Chat Store uses Zustand to manage all state related to the chat with video feature, including video details, transcript data, thread generation state, and UI controls.
+
+## Store File
+
+**Location**: `src/features/chat/store/video-chat-store.ts`
+
+## State Interface
+
+```typescript
+interface VideoChatState {
+  // Video state
+  videoUrl: string;
+  videoId: string;
+  transcript: string;
+  hasTranscript: boolean;
+  isLoadingTranscript: boolean;
+
+  // Thread state
+  threads: ThreadData[];
+  generatingThreads: boolean;
+  threadsModalOpen: boolean;
+
+  // Actions
+  setVideoUrl: (url: string) => void;
+  setVideoId: (id: string) => void;
+  setTranscript: (transcript: string) => void;
+  setHasTranscript: (has: boolean) => void;
+  setIsLoadingTranscript: (loading: boolean) => void;
+  setThreads: (threads: ThreadData[]) => void;
+  setGeneratingThreads: (generating: boolean) => void;
+  setThreadsModalOpen: (open: boolean) => void;
+  resetChat: () => void;
+}
+```
+
+## ThreadData Interface
+
+```typescript
+interface ThreadData {
+  post: number;        // Post number (1, 2, 3...)
+  content: string;     // Post content text
+  total: number;       // Total number of posts in thread
+  thumbnail?: string;  // Video thumbnail (first post only)
+}
+```
+
+## State Properties
+
+### Video State
+
+#### videoUrl
+- **Type**: `string`
+- **Default**: `''`
+- **Purpose**: Stores the YouTube URL entered by user
+- **Usage**: Input field value, passed to transcript fetching
+
+#### videoId
+- **Type**: `string`
+- **Default**: `''`
+- **Purpose**: Extracted YouTube video ID
+- **Usage**: Used for thumbnail URLs and API calls
+
+#### transcript
+- **Type**: `string`
+- **Default**: `''`
+- **Purpose**: Full video transcript text
+- **Usage**: Passed to AI as context in system prompt
+
+#### hasTranscript
+- **Type**: `boolean`
+- **Default**: `false`
+- **Purpose**: Indicates if transcript has been successfully loaded
+- **Usage**: Controls whether to show chat interface or video input
+
+#### isLoadingTranscript
+- **Type**: `boolean`
+- **Default**: `false`
+- **Purpose**: Loading state during transcript fetch
+- **Usage**: Disables input and shows loading spinner
+
+### Thread State
+
+#### threads
+- **Type**: `ThreadData[]`
+- **Default**: `[]`
+- **Purpose**: Stores generated Twitter thread posts
+- **Usage**: Displayed in thread modal, copied to clipboard
+
+#### generatingThreads
+- **Type**: `boolean`
+- **Default**: `false`
+- **Purpose**: Loading state during thread generation
+- **Usage**: Shows skeleton loader in thread modal
+
+#### threadsModalOpen
+- **Type**: `boolean`
+- **Default**: `false`
+- **Purpose**: Controls visibility of thread modal
+- **Usage**: Opens when thread generation starts, closes on dismiss
+
+## Actions
+
+### setVideoUrl
+```typescript
+setVideoUrl: (url: string) => void
+```
+Updates the YouTube video URL.
+
+**Usage**:
+```typescript
+const { setVideoUrl } = useVideoChatStore();
+setVideoUrl('https://youtube.com/watch?v=...');
+```
+
+### setVideoId
+```typescript
+setVideoId: (id: string) => void
+```
+Updates the extracted video ID.
+
+**Usage**:
+```typescript
+const { setVideoId } = useVideoChatStore();
+setVideoId('dQw4w9WgXcQ');
+```
+
+### setTranscript
+```typescript
+setTranscript: (transcript: string) => void
+```
+Updates the video transcript text.
+
+**Usage**:
+```typescript
+const { setTranscript } = useVideoChatStore();
+setTranscript(data.transcript.fullTranscript);
+```
+
+### setHasTranscript
+```typescript
+setHasTranscript: (has: boolean) => void
+```
+Updates whether transcript has been loaded.
+
+**Usage**:
+```typescript
+const { setHasTranscript } = useVideoChatStore();
+setHasTranscript(true);
+```
+
+### setIsLoadingTranscript
+```typescript
+setIsLoadingTranscript: (loading: boolean) => void
+```
+Updates the transcript loading state.
+
+**Usage**:
+```typescript
+const { setIsLoadingTranscript } = useVideoChatStore();
+setIsLoadingTranscript(true);
+// ... fetch transcript ...
+setIsLoadingTranscript(false);
+```
+
+### setThreads
+```typescript
+setThreads: (threads: ThreadData[]) => void
+```
+Updates the generated thread posts array.
+
+**Usage**:
+```typescript
+const { setThreads } = useVideoChatStore();
+setThreads([
+  { post: 1, content: '...', total: 5, thumbnail: '...' },
+  { post: 2, content: '...', total: 5 },
+  // ...
+]);
+```
+
+### setGeneratingThreads
+```typescript
+setGeneratingThreads: (generating: boolean) => void
+```
+Updates the thread generation loading state.
+
+**Usage**:
+```typescript
+const { setGeneratingThreads } = useVideoChatStore();
+setGeneratingThreads(true);
+```
+
+### setThreadsModalOpen
+```typescript
+setThreadsModalOpen: (open: boolean) => void
+```
+Controls thread modal visibility.
+
+**Usage**:
+```typescript
+const { setThreadsModalOpen } = useVideoChatStore();
+setThreadsModalOpen(true); // Open modal
+```
+
+### resetChat
+```typescript
+resetChat: () => void
+```
+Resets all state to initial values.
+
+**Usage**:
+```typescript
+const { resetChat } = useVideoChatStore();
+resetChat(); // Clear everything, start fresh
+```
+
+## Initial State
+
+```typescript
+const initialState = {
+  videoUrl: '',
+  videoId: '',
+  transcript: '',
+  hasTranscript: false,
+  isLoadingTranscript: false,
+  threads: [],
+  generatingThreads: false,
+  threadsModalOpen: false
+};
+```
+
+## Store Implementation
+
+```typescript
+export const useVideoChatStore = create<VideoChatState>((set) => ({
+  ...initialState,
+
+  setVideoUrl: (url) => set({ videoUrl: url }),
+  setVideoId: (id) => set({ videoId: id }),
+  setTranscript: (transcript) => set({ transcript }),
+  setHasTranscript: (has) => set({ hasTranscript: has }),
+  setIsLoadingTranscript: (loading) => set({ isLoadingTranscript: loading }),
+  setThreads: (threads) => set({ threads }),
+  setGeneratingThreads: (generating) => set({ generatingThreads: generating }),
+  setThreadsModalOpen: (open) => set({ threadsModalOpen: open }),
+  resetChat: () => set(initialState)
+}));
+```
+
+## Usage Example
+
+### In a Component
+```typescript
+import { useVideoChatStore } from '../store/video-chat-store';
+
+function ChatComponent() {
+  const {
+    videoUrl,
+    transcript,
+    hasTranscript,
+    isLoadingTranscript,
+    setVideoUrl,
+    setTranscript
+  } = useVideoChatStore();
+
+  // Use state and actions
+  return (
+    <div>
+      <input
+        value={videoUrl}
+        onChange={(e) => setVideoUrl(e.target.value)}
+      />
+      {hasTranscript && <ChatInterface transcript={transcript} />}
+    </div>
+  );
+}
+```
+
+### In a Hook
+```typescript
+import { useVideoChatStore } from '../store/video-chat-store';
+
+export function useVideoTranscript() {
+  const {
+    videoUrl,
+    setTranscript,
+    setHasTranscript,
+    setIsLoadingTranscript
+  } = useVideoChatStore();
+
+  const fetchTranscript = async () => {
+    setIsLoadingTranscript(true);
+    // Fetch logic...
+    setTranscript(data.transcript);
+    setHasTranscript(true);
+    setIsLoadingTranscript(false);
+  };
+
+  return { fetchTranscript };
+}
+```
+
+## State Flow
+
+### Video Loading Flow
+```
+User enters URL → setVideoUrl(url)
+↓
+Validation passes → setIsLoadingTranscript(true)
+↓
+Extract video ID → setVideoId(id)
+↓
+Fetch transcript from API
+↓
+Success → setTranscript(text) → setHasTranscript(true)
+↓
+setIsLoadingTranscript(false)
+```
+
+### Thread Generation Flow
+```
+User clicks "Thread" → setGeneratingThreads(true)
+↓
+Open modal → setThreadsModalOpen(true)
+↓
+Clear previous threads → setThreads([])
+↓
+AI generates thread posts
+↓
+Parse and format → setThreads(parsedThreads)
+↓
+setGeneratingThreads(false)
+```
+
+### Reset Flow
+```
+User clicks "New Video" → resetChat()
+↓
+All state returns to initial values
+↓
+Chat interface hidden, video input shown
+```
+
+## Related Documentation
+
+- [Chat Overview](/docs/ChatWithVideo/chat-overview)
+- [Chat Hooks](/docs/ChatWithVideo/chat-hooks)
+- [Chat Component](/docs/ChatWithVideo/chat-component)

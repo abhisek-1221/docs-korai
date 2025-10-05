@@ -1,0 +1,396 @@
+---
+title: Authentication with Clerk
+description: Authentication implementation using Clerk for user management
+---
+
+# Authentication System
+
+The application uses Clerk for authentication, providing secure user authentication with multiple sign-in options including email and OAuth providers like GitHub. Clerk handles user sessions, protected routes, and authentication state management.
+
+## Architecture
+
+### Components
+- **Sign-In View** (`sign-in-view.tsx`) - Sign-in page with Clerk form
+- **Sign-Up View** (`sign-up-view.tsx`) - Sign-up page with Clerk form  
+- **User Auth Form** (`user-auth-form.tsx`) - Custom email form (demo)
+- **GitHub Auth Button** (`github-auth-button.tsx`) - OAuth button (demo)
+
+### Middleware
+- **Clerk Middleware** (`middleware.ts`) - Protects routes requiring authentication
+
+## Clerk Integration
+
+### Middleware Implementation
+
+```typescript
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { NextRequest } from 'next/server';
+
+const isProtectedRoute = createRouteMatcher(['/dashboard(.*)']);
+
+export default clerkMiddleware(async (auth, req: NextRequest) => {
+  if (isProtectedRoute(req)) await auth.protect();
+});
+
+export const config = {
+  matcher: [
+    // Skip Next.js internals and all static files
+    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // Always run for API routes
+    '/(api|trpc)(.*)'
+  ]
+};
+```
+
+**How It Works**:
+
+1. **Route Matcher**: Creates matcher for protected routes
+   - `createRouteMatcher(['/dashboard(.*)'])` matches all dashboard routes
+   - Regex pattern catches `/dashboard` and any sub-paths
+
+2. **Middleware Function**: Executes on every request
+   - Receives `auth` helper and `req` (Next.js request)
+   - Checks if current route is protected using `isProtectedRoute(req)`
+   - Calls `await auth.protect()` to enforce authentication
+   - Redirects to sign-in if not authenticated
+
+3. **Matcher Config**: Defines which routes run middleware
+   - Skips Next.js internal routes (`_next`)
+   - Skips static files (images, fonts, etc.)
+   - Always runs for API routes (`/api` and `/trpc`)
+   - Ensures middleware only runs on necessary routes for performance
+
+**Protected Routes**:
+- All routes under `/dashboard/*` require authentication
+- Unauthenticated users redirected to Clerk sign-in page
+- After sign-in, users redirected back to original destination
+
+## Sign-In Page
+
+```typescript
+import { SignIn as ClerkSignInForm } from '@clerk/nextjs';
+
+export default function SignInViewPage() {
+  return (
+    <div className='relative h-screen flex-col items-center justify-center md:grid lg:max-w-none lg:grid-cols-2 lg:px-0'>
+      {/* Left Side - Branding */}
+      <div className='bg-muted relative hidden h-full flex-col p-10 text-white lg:flex dark:border-r'>
+        <div className='absolute inset-0 overflow-hidden'>
+          <GrainGradient
+            width={1920}
+            height={1080}
+            colors={['#b0b0b0', '#1f1e1e', '#000000', '#222225']}
+            colorBack='#000000'
+            softness={0.27}
+            intensity={0.5}
+            noise={0.25}
+            shape='corners'
+            speed={2}
+          />
+        </div>
+        <div className='relative z-20 flex items-center text-lg font-medium'>
+          {/* Logo SVG */}
+          Korai
+        </div>
+        <div className='relative z-20 mt-auto'>
+          <blockquote className='space-y-2'>
+            <p className='text-lg italic'>
+              Create, clip, and command — all in one place
+            </p>
+          </blockquote>
+        </div>
+      </div>
+
+      {/* Right Side - Sign In Form */}
+      <div className='flex h-full items-center justify-center p-4 lg:p-8'>
+        <div className='flex w-full max-w-md flex-col items-center justify-center space-y-6'>
+          <ClerkSignInForm
+            initialValues={{
+              emailAddress: 'your_mail+clerk_test@example.com'
+            }}
+          />
+          <p className='text-muted-foreground px-8 text-center text-sm'>
+            By clicking continue, you agree to our{' '}
+            <Link href='/terms'>Terms of Service</Link> and{' '}
+            <Link href='/privacy'>Privacy Policy</Link>.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+**Layout**:
+- **Two-column grid**: Branding on left (hidden on mobile), form on right
+- **Responsive**: Single column on mobile/tablet, two columns on desktop
+
+**Left Panel (Branding)**:
+- Animated gradient background using `GrainGradient` shader
+- Logo with SVG icon and app name "Korai"
+- Tagline at bottom: "Create, clip, and command — all in one place"
+- Hidden on mobile (`hidden lg:flex`)
+
+**Right Panel (Form)**:
+- Clerk's pre-built `<ClerkSignInForm />` component
+- Initial email pre-filled for testing: `your_mail+clerk_test@example.com`
+- Terms of Service and Privacy Policy links below form
+- Centered vertically and horizontally
+
+**Clerk Form Features**:
+- Email/password authentication
+- OAuth providers (GitHub, Google, etc.) configured in Clerk Dashboard
+- Password reset functionality
+- Email verification
+- Error handling and validation
+- Session management
+
+## Sign-Up Page
+
+```typescript
+import { SignUp as ClerkSignUpForm } from '@clerk/nextjs';
+
+export default function SignUpViewPage() {
+  return (
+    <div className='relative h-screen flex-col items-center justify-center md:grid lg:max-w-none lg:grid-cols-2 lg:px-0'>
+      {/* Same layout as Sign-In */}
+      <div className='flex h-full items-center justify-center p-4 lg:p-8'>
+        <div className='flex w-full max-w-md flex-col items-center justify-center space-y-6'>
+          <ClerkSignUpForm
+            initialValues={{
+              emailAddress: 'your_mail+clerk_test@example.com'
+            }}
+          />
+          <p className='text-muted-foreground px-8 text-center text-sm'>
+            By clicking continue, you agree to our{' '}
+            <Link href='/terms'>Terms of Service</Link> and{' '}
+            <Link href='/privacy'>Privacy Policy</Link>.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+**Layout**: Identical to sign-in page
+
+**Clerk Form Features**:
+- Email/password registration
+- OAuth providers for quick sign-up
+- Email verification required
+- Password strength validation
+- Duplicate account detection
+- Automatic sign-in after registration
+
+## Custom Auth Components (Demo)
+
+The application includes custom auth form components for reference. These are demo implementations and not used in production (Clerk components are used instead).
+
+### User Auth Form
+
+```typescript
+'use client';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
+import * as z from 'zod';
+
+const formSchema = z.object({
+  email: z.string().email({ message: 'Enter a valid email address' })
+});
+
+type UserFormValue = z.infer<typeof formSchema>;
+
+export default function UserAuthForm() {
+  const [loading, startTransition] = useTransition();
+  const form = useForm<UserFormValue>({
+    resolver: zodResolver(formSchema),
+    defaultValues: { email: 'demo@gmail.com' }
+  });
+
+  const onSubmit = async (data: UserFormValue) => {
+    startTransition(() => {
+      console.log('continue with email clicked');
+      toast.success('Signed In Successfully!');
+    });
+  };
+
+  return (
+    <>
+      <Form form={form} onSubmit={form.handleSubmit(onSubmit)}>
+        <FormInput
+          control={form.control}
+          name='email'
+          label='Email'
+          placeholder='Enter your email...'
+          disabled={loading}
+        />
+        <Button disabled={loading} type='submit'>
+          Continue With Email
+        </Button>
+      </Form>
+      
+      <div className='relative'>
+        <div className='absolute inset-0 flex items-center'>
+          <span className='w-full border-t' />
+        </div>
+        <div className='relative flex justify-center text-xs uppercase'>
+          <span className='bg-background text-muted-foreground px-2'>
+            Or continue with
+          </span>
+        </div>
+      </div>
+      
+      <GithubSignInButton />
+    </>
+  );
+}
+```
+
+**Features**:
+- Email validation using Zod schema
+- React Hook Form for form state management
+- Loading state during submission using `useTransition`
+- Divider with "Or continue with" text
+- GitHub OAuth button
+
+### GitHub Auth Button
+
+```typescript
+'use client';
+
+export default function GithubSignInButton() {
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl');
+
+  return (
+    <Button
+      variant='outline'
+      type='button'
+      onClick={() => console.log('continue with github clicked')}
+    >
+      <Icons.github className='mr-2 h-4 w-4' />
+      Continue with Github
+    </Button>
+  );
+}
+```
+
+**Features**:
+- Retrieves callback URL from search params for redirect after auth
+- Outline variant button with GitHub icon
+- Click handler logs action (demo implementation)
+
+## Authentication Flow
+
+### Sign-In Flow
+1. User navigates to `/auth/sign-in`
+2. Clerk form rendered with email and OAuth options
+3. User enters credentials or clicks OAuth provider
+4. Clerk validates credentials
+5. On success, creates session and redirects to dashboard
+6. Middleware allows access to protected routes
+
+### Sign-Up Flow
+1. User navigates to `/auth/sign-up`
+2. Clerk form rendered with registration fields
+3. User enters email and password
+4. Clerk sends verification email
+5. User verifies email via link
+6. Account created and user signed in automatically
+7. Redirected to dashboard
+
+### Session Management
+- Clerk manages JWT sessions automatically
+- Sessions stored in HTTP-only cookies
+- Tokens refreshed automatically before expiration
+- No manual token handling required
+
+## Accessing User Data
+
+Clerk provides helpers to access authenticated user data:
+
+**In Server Components**:
+```typescript
+import { auth } from '@clerk/nextjs/server';
+
+export default async function Page() {
+  const { userId } = await auth();
+  
+  if (!userId) {
+    redirect('/auth/sign-in');
+  }
+  
+  // Use userId for database queries
+}
+```
+
+**In API Routes**:
+```typescript
+import { auth } from '@clerk/nextjs/server';
+
+export async function POST(req: Request) {
+  const { userId } = await auth();
+  
+  if (!userId) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  
+  // Process request with userId
+}
+```
+
+**In Client Components**:
+```typescript
+import { useUser } from '@clerk/nextjs';
+
+export default function Component() {
+  const { user, isLoaded, isSignedIn } = useUser();
+  
+  if (!isLoaded) return <Loader />;
+  if (!isSignedIn) return <SignInPrompt />;
+  
+  return <div>Welcome {user.firstName}</div>;
+}
+```
+
+## Environment Variables
+
+Required environment variables for Clerk:
+
+```bash
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+
+# Clerk URLs
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/auth/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/auth/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/dashboard
+```
+
+## User ID in Database
+
+Throughout the application, `userId` from Clerk is used to associate data with users:
+
+```typescript
+// In Prisma schema
+model Video {
+  id        String   @id @default(cuid())
+  userId    String   // Clerk user ID
+  // ... other fields
+}
+
+// In API routes
+const { userId } = await auth();
+const video = await prisma.video.create({
+  data: {
+    userId,
+    youtubeUrl,
+    // ... other data
+  }
+});
+```
+
+This ensures data is properly scoped to authenticated users without managing separate user tables.
