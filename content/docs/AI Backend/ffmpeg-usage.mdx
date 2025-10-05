@@ -1,0 +1,142 @@
+---
+title: "FFmpeg Usage"
+---
+
+## FFmpeg Usage in the AI Backend
+
+FFmpeg is a powerful multimedia framework used extensively in the AI backend for various video and audio manipulation tasks. This document provides a detailed explanation of how and where FFmpeg is used in the `main.py` file.
+
+### 1. Video Clip Creation
+
+In the `create_video_clip` function, FFmpeg is used to combine the processed video frames (without audio) with the corresponding audio track to create the final video clip. It also applies an audio fade-out effect.
+
+```python
+    ffmpeg_command = (f"ffmpeg -y -i {temp_video_path} -i {audio_path} "
+                      f"-af \"afade=t=out:st={fade_start}:d={fade_duration}\" "
+                      f"-c:v h264 -preset fast -crf 23 -c:a aac -b:a 128k "
+                      f"{output_path}")
+    subprocess.run(ffmpeg_command, shell=True, check=True, text=True)
+```
+
+**Command Breakdown:**
+- `-y`: Overwrite output file if it exists.
+- `-i {temp_video_path}`: Specifies the input video file (video only).
+- `-i {audio_path}`: Specifies the input audio file.
+- `-af "afade=t=out:st={fade_start}:d={fade_duration}"`: Applies an audio fade-out effect.
+- `-c:v h264 -preset fast -crf 23`: Encodes the video using the H.264 codec with a fast preset and a Constant Rate Factor (CRF) of 23 for good quality and file size.
+- `-c:a aac -b:a 128k`: Encodes the audio using the AAC codec with a bitrate of 128 kbps.
+- `{output_path}`: Specifies the output file path.
+
+---
+
+### 2. Subtitle Burning
+
+In the `create_subtitles_with_ffmpeg` function, FFmpeg is used to burn the generated subtitles (in `.ass` format) onto the video clip.
+
+```python
+    ffmpeg_cmd = (f"ffmpeg -y -i {clip_video_path} -vf \"ass={subtitle_path}\" "
+                  f"-c:v h264 -preset fast -crf 23 {output_path}")
+
+    subprocess.run(ffmpeg_cmd, shell=True, check=True)
+```
+
+**Command Breakdown:**
+- `-vf "ass={subtitle_path}"`: Applies a video filter that renders the subtitles from the specified `.ass` file.
+
+---
+
+### 3. Adding Background Music
+
+In the `add_background_music` function, FFmpeg is used to mix the original audio of a video with a background music track.
+
+```python
+        ffmpeg_cmd = (
+            f"ffmpeg -y -i {input_video_path} -i {music_path} "
+            f'-filter_complex "[1:a]volume={volume}[bg]; [0:a][bg]amix=inputs=2:duration=shortest:dropout_transition=2[mixed]" '
+            f'-map 0:v -map "[mixed]" -c:v copy -c:a aac -b:a 128k -shortest {output_video_path}'
+        )
+```
+
+**Command Breakdown:**
+- `-filter_complex "..."`: Defines a complex filtergraph for audio mixing.
+  - `[1:a]volume={volume}[bg]`: Takes the audio from the second input (music) and adjusts its volume, labeling the output as `[bg]`.
+  - `[0:a][bg]amix=inputs=2:duration=shortest:dropout_transition=2[mixed]`: Mixes the audio from the first input (original audio) with the `[bg]` stream. The output duration is set to the shortest input, and a dropout transition is used.
+- `-map 0:v`: Selects the video stream from the first input.
+- `-map "[mixed]"`: Selects the mixed audio stream.
+- `-c:v copy`: Copies the video stream without re-encoding, which is fast and preserves quality.
+
+---
+
+### 4. Adding a Watermark
+
+In the `add_watermark` function, FFmpeg is used to overlay a watermark image onto the video.
+
+```python
+    ffmpeg_cmd = (f"ffmpeg -y -i {input_video_path} -i {watermark_path} "
+                  f'-filter_complex "[1:v][0:v]scale2ref=w=main_w/10:h=-1[wm][base];[base][wm]overlay=40:40" '
+                  f"-c:v h264 -preset fast -crf 23 -c:a copy {output_video_path}")
+```
+
+**Command Breakdown:**
+- `-filter_complex "..."`: Defines a complex filtergraph for video processing.
+  - `[1:v][0:v]scale2ref=w=main_w/10:h=-1[wm][base]`: Scales the watermark relative to the main video's width.
+  - `[base][wm]overlay=40:40`: Overlays the scaled watermark `[wm]` onto the base video `[base]` at position (40, 40).
+- `-c:a copy`: Copies the audio stream without re-encoding.
+
+---
+
+### 5. Clipping and Audio Extraction
+
+In the `process_clip` function, FFmpeg is used to cut a segment from the original video and extract its audio.
+
+**Clipping:**
+```python
+    cut_command = (f"ffmpeg -i {original_video_path} -ss {start_time} -t {duration} "
+                   f"{clip_segment_path}")
+    subprocess.run(cut_command, shell=True, check=True,
+                   capture_output=True, text=True)
+```
+
+**Audio Extraction:**
+```python
+    extract_cmd = f"ffmpeg -i {clip_segment_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 {audio_path}"
+    subprocess.run(extract_cmd, shell=True,
+                   check=True, capture_output=True)
+```
+
+**Command Breakdown:**
+- `-ss {start_time}`: Seeks to the specified start time.
+- `-t {duration}`: Specifies the duration of the clip.
+- `-vn`: Disables video recording (for audio extraction).
+- `-acodec pcm_s16le`: Sets the audio codec to 16-bit PCM.
+- `-ar 16000`: Sets the audio sample rate to 16000 Hz.
+- `-ac 1`: Sets the number of audio channels to 1 (mono).
+
+---
+
+### 6. Audio Extraction for Transcription
+
+In the `transcribe_video_fast` and `transcribe_video` functions, FFmpeg is used to extract the audio from the input video for transcription.
+
+```python
+    extract_cmd = f"ffmpeg -i {video_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 -threads 0 {audio_path}"
+    subprocess.run(extract_cmd, shell=True, check=True, capture_output=True)
+```
+
+This command is similar to the audio extraction in `process_clip`, with the addition of `-threads 0` to use all available CPU cores.
+
+### 7. Probing Video Information
+
+In `download_youtube_video`, `ffprobe` (a tool included with FFmpeg) is used to get information about the downloaded video, such as its resolution.
+
+```python
+    probe_cmd = f'ffprobe -v quiet -print_format json -show_streams "{output_path.replace("%("ext)s", "*")}"'
+    result = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
+```
+
+**Command Breakdown:**
+- `-v quiet`: Suppresses all logging except for errors.
+- `-print_format json`: Sets the output format to JSON.
+- `-show_streams`: Shows information about each stream in the video.
+
+```
