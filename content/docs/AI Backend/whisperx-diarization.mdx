@@ -1,0 +1,47 @@
+---
+title: "WhisperX Usage with Speaker Diarization"
+---
+
+The AI backend leverages WhisperX, an enhanced version of OpenAI's Whisper model, for accurate and fast video transcription. A key feature of the implementation is the integration of speaker diarization, which allows the system to identify who is speaking and when.
+
+### The Transcription Process
+
+The core transcription logic is encapsulated in the `transcribe_video` method of the `AiPodcastClipper` class.
+
+```python
+    def transcribe_video(self, base_dir: str, video_path: str, target_language: Optional[str] = None) -> tuple[str, object, str]:
+        # ... (implementation details)
+```
+
+Here's a step-by-step breakdown of the process:
+
+1.  **Audio Extraction**: First, the audio is extracted from the video file into a WAV format using FFmpeg. This is a prerequisite for both transcription and diarization.
+
+2.  **Transcription with WhisperX**: The extracted audio is then transcribed using the `whisperx_model.transcribe()` method. This returns the initial transcript with word-level timestamps.
+
+3.  **Speaker Diarization**: If a `target_language` is provided (indicating that translation and TTS may be required), the system proceeds with speaker diarization using the `diarization_pipeline` from `pyannote.audio`.
+
+    ```python
+    diarize_segments = self.diarization_pipeline(audio)
+    result = whisperx.assign_word_speakers(diarize_segments, result)
+    ```
+
+    The `assign_word_speakers` function from WhisperX maps the diarization results to the transcribed words, assigning a speaker label to each word.
+
+4.  **Manual Speaker Assignment (Fallback)**: The system includes a robust fallback mechanism. If the automatic speaker assignment fails to attribute a speaker to a significant portion of the words, it triggers the `manual_speaker_assignment` method. This method manually assigns speakers based on the temporal overlap between word segments and diarization segments, ensuring more reliable speaker attribution.
+
+5.  **Transcript Alignment**: Finally, the transcript is aligned using a language-specific alignment model from WhisperX. This process refines the word-level timestamps, which is crucial for accurate subtitle generation and multi-voice TTS.
+
+### Fast Transcription
+
+For scenarios where only the transcript is needed to identify potential clips (e.g., in the `identify_clips` endpoint), the `transcribe_video_fast` method is used. This method skips the computationally expensive speaker diarization and alignment steps, providing a much faster turnaround time.
+
+### Why Speaker Diarization is Important
+
+Speaker diarization is a critical component of the AI backend's multi-voice translation and TTS capabilities. By knowing who is speaking, the system can:
+
+-   Assign different voices to different speakers in the translated audio, creating a more natural and engaging listening experience.
+-   Group text by speaker for more coherent translation.
+-   Potentially be used for speaker-specific analysis or clip generation in the future.
+
+This combination of WhisperX for transcription and `pyannote.audio` for diarization provides a powerful and accurate foundation for the AI backend's video processing pipeline.

@@ -1,0 +1,48 @@
+---
+title: "Video Reframing with Active Speaker Detection"
+---
+
+One of the key features of the AI backend is its ability to automatically reframe a video to focus on the active speaker. This is particularly useful for creating engaging short-form clips from long-form content like podcasts and interviews. This process is handled by the `create_video_clip` function, which uses the output of an Active Speaker Detection (ASD) model.
+
+### The Active Speaker Detection Model
+
+The backend uses a pre-trained model from the paper "Learning Speaker-Specific Lip-to-Speech Synthesis" (often referred to as the Columbia model) to detect the active speaker in a video. This model analyzes the video and audio to determine who is speaking at any given time.
+
+The model is executed by running the `Columbia_test.py` script:
+
+```python
+    columbia_command = (f"python Columbia_test.py --videoName {clip_name} "
+                        f"--videoFolder {str(base_dir)} "
+                        f"--pretrainModel weight/finetuning_TalkSet.model")
+
+    subprocess.run(columbia_command, cwd="/asd", shell=True)
+```
+
+This script generates two important files:
+- `tracks.pckl`: Contains the tracking information for all detected faces in the video.
+- `scores.pckl`: Contains the active speaker scores for each tracked face.
+
+### The `create_video_clip` Function
+
+The `create_video_clip` function takes the output of the ASD model and uses it to generate a reframed video clip. It intelligently decides whether to crop the video to focus on the speaker or to resize it to show the full frame.
+
+```python
+def create_video_clip(tracks, scores, pyframes_path, pyavi_path, audio_path, output_path, duration, aspect_ratio: str = "9:16", framerate=25):
+    # ... (implementation details)
+```
+
+#### How it Works:
+
+1.  **Face Association**: The function first associates the detected faces with their corresponding active speaker scores for each frame of the video.
+
+2.  **Scoring and Selection**: For each frame, it identifies the face with the highest active speaker score. If the score is below a certain threshold, it assumes no one is speaking and no face is selected.
+
+3.  **Smart Cropping and Resizing**:
+    -   **Crop Mode**: If an active speaker is detected, the function crops the video frame to focus on the speaker's face. It calculates the crop region to keep the face centered, creating a dynamic, speaker-focused view.
+    -   **Resize Mode**: If no active speaker is detected, the function resizes the entire frame to fit the target aspect ratio, adding a blurred background to fill the empty space. This ensures that the video remains visually appealing even when no one is speaking.
+
+4.  **Video Assembly**: The processed frames are then assembled into a new video-only clip using `ffmpegcv.VideoWriterNV` for hardware-accelerated encoding.
+
+5.  **Audio Integration**: Finally, the original audio is added back to the reframed video clip using FFmpeg, and an audio fade-out is applied at the end.
+
+This automated reframing process allows the AI backend to produce professional-looking video clips that are optimized for social media platforms, all without any manual editing.

@@ -1,0 +1,45 @@
+---
+title: "AWS Polly Usage"
+---
+
+The AI backend uses AWS Polly, Amazon's text-to-speech (TTS) service, to generate high-quality, natural-sounding speech for non-Indian languages. This is a key part of the multi-voice translation and TTS pipeline.
+
+### The `synthesize_speech_polly` Function
+
+The `synthesize_speech_polly` function is the dedicated function for interacting with the AWS Polly API.
+
+```python
+def synthesize_speech_polly(text: str, target_language: str, voice_id: str) -> bytes:
+    """Synthesize speech using AWS Polly"""
+    # ... (implementation details)
+```
+
+#### How it Works:
+
+1.  **Client Initialization**: The function initializes the Boto3 Polly client with the necessary AWS credentials.
+
+2.  **Language and Voice Mapping**: It maps the internal language codes to the language codes and voices supported by AWS Polly. The `POLLY_VOICE_MAP` dictionary defines a selection of voices for various languages.
+
+3.  **Neural Engine Prioritization**: The function is designed to prioritize Polly's neural engine for the highest quality speech synthesis. It maintains a list of `neural_voices` and attempts to use the `neural` engine for these voices. If the neural engine fails for any reason, it automatically falls back to the `standard` engine, ensuring robustness.
+
+4.  **Speech Synthesis**: The `polly_client.synthesize_speech()` method is called with the text, voice ID, language code, and selected engine. The output format is requested as MP3.
+
+5.  **Format Conversion**: Since the rest of the audio processing pipeline works with the WAV format, the function uses the `pydub` library to convert the MP3 audio stream received from Polly into WAV format.
+
+### Voice Selection for Multi-Voice TTS
+
+When processing a clip with multiple speakers, the system intelligently assigns a different AWS Polly voice to each speaker. This is handled in the `process_clip` function:
+
+```python
+                else:
+                    # Use AWS Polly voices for non-Indian languages
+                    polly_voices = POLLY_VOICE_MAP.get(target_language, ["Joanna", "Matthew"])
+                    # Ensure we cycle through all available voices for better distinction
+                    voice_map = {}
+                    for i, speaker in enumerate(speakers):
+                        voice_map[speaker] = polly_voices[i % len(polly_voices)]
+```
+
+This ensures that each speaker in the translated video has a distinct and consistent voice, creating a more natural and professional-sounding result.
+
+By leveraging AWS Polly, the AI backend can provide high-quality, multi-voice TTS for a wide range of languages, significantly enhancing the quality of the translated video clips.

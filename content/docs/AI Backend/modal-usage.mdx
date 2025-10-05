@@ -1,0 +1,54 @@
+---
+title: "Modal Usage for AI Infrastructure"
+---
+
+The entire AI backend is built on top of [Modal](https://modal.com/), a serverless platform that allows for running containerized applications with on-demand GPU resources. This approach provides a powerful, scalable, and cost-effective infrastructure for our AI-powered video processing pipeline.
+
+### Defining the Environment
+
+The core of our Modal setup is the `AiPodcastClipper` class, which is decorated with `@app.cls`. This decorator defines the environment in which our code will run.
+
+```python
+@app.cls(gpu="L40S", timeout=9000, retries=0, scaledown_window=300, secrets=[modal.Secret.from_name("jif-backend"), modal.Secret.from_name("sarvam-ai"), modal.Secret.from_name("huggingface"), modal.Secret.from_name("openrouter-api-key")], volumes={mount_path: volume})
+class AiPodcastClipper:
+    # ...
+```
+
+**Decorator Parameters:**
+- `gpu="L40S"`: This specifies that we need an NVIDIA L40S GPU for our container. Modal automatically provisions the requested GPU when the application starts.
+- `timeout=9000`: Sets a 2.5-hour timeout for the container, which is necessary for processing long videos.
+- `secrets=[...]`: This is how we securely manage our API keys and other secrets. Modal injects these secrets as environment variables into the container.
+- `volumes={mount_path: volume}`: We use a Modal `Volume` to cache our large AI models. This acts as a shared network file system that persists between runs, so we don't have to re-download the models every time the application starts.
+
+### Model Loading with `@modal.enter()`
+
+The `@modal.enter()` decorator is used for the `load_model` method. This method is executed only once when the container starts up. We use it to load our large AI models (WhisperX, diarization pipeline, etc.) into memory.
+
+```python
+    @modal.enter()
+    def load_model(self):
+        # Load models here
+```
+
+This ensures that the models are ready to go when we receive a request, minimizing latency.
+
+### API Endpoints with `@modal.fastapi_endpoint()`
+
+Modal allows us to expose our functions as web endpoints. We use the `@modal.fastapi_endpoint()` decorator to turn our processing functions (`process_video`, `identify_clips`, etc.) into fully-featured FastAPI endpoints.
+
+```python
+    @modal.fastapi_endpoint(method="POST")
+    def process_video(self, request: ProcessVideoRequest, token: HTTPAuthorizationCredentials = Depends(auth_scheme)):
+        # ...
+```
+
+This allows us to easily interact with our AI backend through a simple HTTP API, without having to worry about setting up and managing a web server.
+
+### Benefits of Using Modal
+
+- **Serverless GPU**: We get access to powerful GPUs without the need to manage our own infrastructure. Modal handles all the provisioning, scaling, and maintenance.
+- **Dependency Management**: The `modal.Image` definition allows us to specify all our system and Python dependencies in code. Modal builds a container image with these dependencies, ensuring a consistent and reproducible environment.
+- **Scalability**: Modal can automatically scale our application to handle multiple requests in parallel. Each request can run in its own container, providing isolation and preventing resource conflicts.
+- **Cost-Effectiveness**: We only pay for the resources we use. When the application is not running, we don't incur any costs.
+
+By using Modal as our AI infrastructure, we can focus on building our application's core logic without getting bogged down in the complexities of infrastructure management.
