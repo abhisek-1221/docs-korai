@@ -1,0 +1,254 @@
+---
+title: Cerebras AI Provider
+description: Fast AI inference using Cerebras with Vercel AI SDK
+---
+
+## Overview
+
+Cerebras is integrated as the primary AI provider for running Llama models in the Korai application. It offers ultra-fast inference speeds, making it ideal for real-time chat interactions and content generation.
+
+## Provider Configuration
+
+**Location**: `src/lib/providers.ts`
+
+### Setup
+
+```typescript
+import { createCerebras } from '@ai-sdk/cerebras';
+
+const cerebras = createCerebras({
+  apiKey: process.env.CEREBRAS_API_KEY
+});
+```
+
+The Cerebras provider is initialized with an API key from environment variables.
+
+### Environment Variable
+
+Add to your `.env.local`:
+
+```bash
+CEREBRAS_API_KEY="your-cerebras-api-key"
+```
+
+## Supported Models
+
+### Llama 3.1 70B Instruct
+- **Model ID**: `meta-llama/llama-3.1-70b-instruct`
+- **Parameters**: 70 billion
+- **Use Case**: General-purpose chat, complex reasoning
+- **Speed**: Fast inference via Cerebras hardware
+
+### Llama 4 Maverick Instruct
+- **Model ID**: `meta-llama/llama-4-maverick-instruct`
+- **Parameters**: Latest Llama 4 architecture
+- **Use Case**: Advanced conversational AI, latest capabilities
+- **Speed**: Ultra-fast inference
+
+## Model Selection Logic
+
+```typescript
+export function getModel(modelName: string) {
+  if (modelName.startsWith('gemini-')) {
+    return google(modelName);
+  } else {
+    return cerebras(modelName);
+  }
+}
+```
+
+The `getModel` helper function automatically routes:
+- **Gemini models** → Google Generative AI provider
+- **All other models** → Cerebras provider (Llama models)
+
+## Usage in Chat API
+
+### API Route Implementation
+
+**Location**: `src/app/api/chat/route.ts`
+
+```typescript
+import { streamText } from 'ai';
+import { getModel, DEFAULT_MODEL } from '@/lib/providers';
+
+const selectedModel = getModel(DEFAULT_MODEL);
+
+const result = streamText({
+  model: webSearch ? 'perplexity/sonar' : (selectedModel as any),
+  messages: processedMessages,
+  system: systemPrompt,
+  experimental_transform: smoothStream()
+});
+
+return result.toUIMessageStreamResponse({
+  sendSources: true,
+  sendReasoning: true
+});
+```
+
+### Model Selection Flow
+
+1. Client sends model preference in request body
+2. API defaults to `gemini-2.5-flash` if no model specified
+3. `getModel()` function returns appropriate provider
+4. If web search enabled, uses Perplexity instead
+
+## Feature Usage
+
+### Chat with Video
+
+In the video chat interface, users can switch between models:
+
+```typescript
+const models = [
+  {
+    name: 'Llama 3.1 70B',
+    value: 'meta-llama/llama-3.1-70b-instruct'
+  },
+  {
+    name: 'Llama 4 Maverick',
+    value: 'meta-llama/llama-4-maverick-instruct'
+  }
+];
+```
+
+Both models are served via Cerebras for fast inference.
+
+### Client-Side Usage
+
+```typescript
+import { useChat } from '@ai-sdk/react';
+
+const { messages, sendMessage, status } = useChat();
+
+sendMessage(
+  { text: 'Summarize this video' },
+  {
+    body: {
+      model: 'meta-llama/llama-3.1-70b-instruct', // Uses Cerebras
+      webSearch: false,
+      system: `Transcript: ${transcript}`
+    }
+  }
+);
+```
+
+## Why Cerebras?
+
+### Performance Benefits
+
+1. **Speed**: Cerebras hardware accelerates inference significantly
+2. **Streaming**: Real-time token streaming for better UX
+3. **Scalability**: Handles concurrent requests efficiently
+4. **Cost-Effective**: Fast inference reduces compute time
+
+### Integration with Vercel AI SDK
+
+Cerebras integrates seamlessly with Vercel AI SDK:
+- Uses standard `streamText` API
+- Compatible with `useChat` hook
+- Supports all AI SDK features (streaming, sources, reasoning)
+
+## Default Model
+
+```typescript
+export const DEFAULT_MODEL = 'gemini-2.5-flash';
+```
+
+While Gemini is the default (for speed and reliability), users can switch to Cerebras-powered Llama models for:
+- More detailed responses
+- Specific use cases requiring Llama architecture
+- Preference for open-source models
+
+## Error Handling
+
+```typescript
+try {
+  const result = streamText({
+    model: selectedModel as any,
+    // ...
+  });
+  return result.toUIMessageStreamResponse();
+} catch (error) {
+  console.error('Error in chat route:', error);
+  return NextResponse.json(
+    { error: 'Failed to process chat request' },
+    { status: 500 }
+  );
+}
+```
+
+Errors are caught and returned as JSON responses with appropriate status codes.
+
+## Provider Comparison
+
+| Feature | Cerebras (Llama) | Google (Gemini) | Perplexity (Sonar) |
+|---------|------------------|-----------------|-------------------|
+| **Speed** | Ultra-fast | Fast | Fast |
+| **Models** | Llama 3.1, 4 | Gemini 2.5 | Sonar |
+| **Use Case** | General chat | Default chat | Web search |
+| **Streaming** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Reasoning** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Sources** | ❌ No | ❌ No | ✅ Yes |
+
+## Best Practices
+
+### When to Use Cerebras (Llama)
+
+✅ Complex reasoning tasks  
+✅ Detailed content generation  
+✅ Thread generation from transcripts  
+✅ When users prefer open-source models  
+
+### When to Use Gemini (Default)
+
+✅ Quick responses needed  
+✅ General-purpose chat  
+✅ High concurrency scenarios  
+✅ Cost optimization  
+
+### When to Use Perplexity
+
+✅ Real-time web search required  
+✅ Current events or facts  
+✅ Need source citations  
+
+## Configuration Summary
+
+```typescript
+// Full provider setup
+import { createGroq } from '@ai-sdk/groq';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createCerebras } from '@ai-sdk/cerebras';
+
+// Initialize providers
+export const groq = createGroq({
+  apiKey: process.env.GROQ_API_KEY
+});
+
+const cerebras = createCerebras({
+  apiKey: process.env.CEREBRAS_API_KEY
+});
+
+export const google = createGoogleGenerativeAI({
+  apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY
+});
+
+// Smart model selection
+export function getModel(modelName: string) {
+  if (modelName.startsWith('gemini-')) {
+    return google(modelName);
+  } else {
+    return cerebras(modelName);
+  }
+}
+
+// Default for optimal performance
+export const DEFAULT_MODEL = 'gemini-2.5-flash';
+```
+
+## Related Documentation
+
+- [Chat with Video - Overview](/docs/ChatWithVideo/chat-overview)
+- [Chat API Route](/docs/ChatWithVideo/chat-api-route)
+- [AI Providers Setup](/docs/AI-Providers/overview)
